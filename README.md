@@ -18,7 +18,7 @@
 | Pillow | 12.3.0，PyPI |
 | setuptools | 81.0.0，`setuptools.build_meta` |
 
-torch／torchvision 的版本配對依 [PyTorch 官方安裝說明](https://pytorch.org/get-started/previous-versions/)；採 CUDA 12.8 wheel 的依據是 [Blackwell 支援](https://pytorch.org/blog/pytorch-2-7/)。Pip 也會安裝這些套件所需的 CUDA runtime、cuDNN、Triton、NumPy、safetensors、einops 等傳遞依賴。
+torch／torchvision 的版本配對依 [PyTorch 官方安裝說明](https://pytorch.org/get-started/previous-versions/)；採 CUDA 12.8 wheel 的依據是 [Blackwell 支援](https://pytorch.org/blog/pytorch-2-7/)。[requirements-wsl.txt](requirements-wsl.txt) 固定上述版本及必要 CUDA wheel 的官方來源；NVIDIA wheel 的 SHA-256 與 PyPI 對應檔案相同。Pip 也會安裝 NumPy、safetensors、einops 等必要傳遞依賴。
 
 本機唯讀資源觀察為 NVIDIA GeForce RTX 5070 Ti **Laptop** GPU，driver 591.74，VRAM 12227 MiB，compute capability 12.0。這些硬體資訊本身不能證明 checkpoint 可推論；實測狀態見下方「驗證紀錄」。
 
@@ -29,14 +29,16 @@ torch／torchvision 的版本配對依 [PyTorch 官方安裝說明](https://pyto
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install --no-cache-dir --only-binary=:all: --progress-bar off \
+python -m pip install --no-deps --no-cache-dir --progress-bar off \
   'https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl' \
-  'https://download.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl' \
-  'spandrel==0.4.2' 'Pillow==12.3.0' 'setuptools==81.0.0'
+  'https://download.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl'
+python -m pip install --no-cache-dir --only-binary=:all: --progress-bar off -r requirements-wsl.txt
 python -m pip install --no-deps --no-build-isolation -e .
 ```
 
-官方 wheel 目錄所連的 `download-r2.pytorch.org` 在本機曾回傳 403，因此上述命令直接使用可讀取的 `download.pytorch.org` 官方檔案。首次安裝估計下載 3–5 GB，請保留約 15 GB 磁碟；實際時間依網速而定。本次安裝的批准上限是 6 GB／20 分鐘。
+第一步只裝兩個官方 wheel，第二步補齊必要依賴，完成前請勿執行推論。本次先保留第一次下載成功的兩個 wheel，從本機檔案安裝後續接以上依賴命令；沒有額外重跑一次全新的環境建置。
+
+來源採 PyTorch 的 `download.pytorch.org`、NVIDIA 的 `pypi.nvidia.com`，其餘套件使用 PyPI。前者避開本機曾回傳 403 的 `download-r2.pytorch.org`；NVIDIA 來源則處理 PyPI cuDNN 下載過慢的實際問題。CUDA wheel 約 2.93 GB，另有 torch／torchvision 約 0.83 GB 與其餘套件，請保留約 15 GB 磁碟。第一次安裝已中止；使用者批准沿用已下載 wheel、改官方來源重試一次，重試上限 20 分鐘，兩次累計下載上限 6 GB。
 
 ## 準備與執行
 
