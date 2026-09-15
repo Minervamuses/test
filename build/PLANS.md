@@ -35,6 +35,8 @@
 - free -h：RAM 31 GiB、當時 available 約 30 GiB、swap 8 GiB。df -h .：可用約 842 GiB。這些會變動，推論前重查，不能據此宣稱 PyTorch CUDA 可用。
 - 初始 AGENTS.md SHA-256：7929b09ceb31e9703380e6225ef7aad9d9141ff6fc830949676f7f024daf7629。本次只新增此計劃的 8 個 Markdown 檔。
 
+2026-09-15 續作更正：live repository 已由使用者初始化於 main，原有 9 個暫存文件已依本輪「每一步皆需 commit」授權原樣提交為 `d203598`。上列「非 Git repository」是歷史觀察，續作基線與證據以 build-log.md 為準；不再初始化 Git。
+
 官方專案列出兩個要求架構；descriptor 文件提供尺寸 metadata、自動 padding 與輸出裁回。因此優先使用 descriptor，實作時仍須核對安裝版本並實測。[Spandrel 官方專案](https://github.com/chaiNNer-org/spandrel)、[ImageModelDescriptor 文件](https://chainner.app/spandrel/spandrel.ImageModelDescriptor.html)。
 
 ## 授權與停止條件
@@ -42,6 +44,10 @@
 ### 本次授權
 
 只建立四個核心文件及四個階段 Markdown。程式、測試、README、依賴、權重及環境均屬後續實作，不在本次執行。
+
+### 2026-09-15 本輪實作授權補充
+
+使用者已啟動實作並授權每個完成步驟 commit；未授權 push、切分支或 worktree 變更。使用者另要求「先跳過，把框架弄起來，我之後再補權重跟資料」：先完成 phase-01 不依賴真實材料的程式與 correctness checks。真實圖片／預訓練權重驗收延後，不以合成資料或 mock 取代 Complete；框架準備完成後記 Blocked，未滿足前置不進 phase-02。依賴／環境仍須按下節具體提案取得批准。
 
 ### 實作啟動後的常規範圍
 
