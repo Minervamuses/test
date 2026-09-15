@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools==81.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drone-sr"
+version = "0.1.0"
+description = "Local image super-resolution through Spandrel"
+requires-python = ">=3.12"
+dependencies = [
+    "torch==2.11.0",
+    "torchvision==0.26.0",
+    "spandrel==0.4.2",
+    "Pillow==12.3.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

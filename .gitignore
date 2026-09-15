@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+/dist/
+/build/lib/
+/build/bdist.*/
+/input/*
+!/input/.gitkeep
+/output/*
+!/output/.gitkeep
+/models/*
+!/models/.gitkeep

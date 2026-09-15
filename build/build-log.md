@@ -6,7 +6,7 @@
 
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻礙 |
 |---|---|---|---|---|---|
-| 01 — 單張推論 | Blocked | 2026-09-15 | — | 本檔下列 preflight／依賴提案 | 待環境批准；真實材料依使用者要求稍後補齊 |
+| 01 — 單張推論 | In progress | 2026-09-15 | — | 本檔 preflight、批准及框架準備 | 真實材料依使用者要求稍後補齊 |
 | 02 — 資料夾 CLI | Not started | — | — | — | 尚未進入實作 preflight |
 | 03 — 模型相容性 | Not started | — | — | — | 尚未進入實作 preflight |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
@@ -108,3 +108,15 @@ python3 -m venv .venv
 #### 下一步與 acceptance
 
 依賴批准後完成最小單張程式、RGB／clamp／PNG／descriptor 尺寸及載入失敗檢查；極小 CPU 與 GPU 軟體計算分開記錄。真實 Compact PNG 開啟、內容／色彩、scale、來源 hash、checkpoint 身分與耗時均仍 unavailable，等待使用者稍後提供材料；不以未訓練模型或 mock 取代。框架準備完成後 phase-01 仍 Blocked，phase-02～04 維持 Not started。
+
+
+### 2026-09-15T17:40:34+08:00 — Phase 01 環境批准與框架準備
+
+- 使用者批准前述 6 GB／20 分鐘範圍的隔離環境及極小 CPU／GPU 軟體檢查，並要求「把你採用的寫入 readme」。狀態 Blocked → In progress；checkpoint／資料驗收仍延後。
+- 前一步 `cbd22ad` 已提交 preflight、環境提案及 PLANS 基線更正。每步 commit 授權沿用。
+- 已新增 `.gitignore`，保護 input/、output/、models/ 的本機資產與 .venv；只版控 `.gitkeep`。採用 `src/drone_sr/`，職責為單張 CLI、I/O、共用 descriptor 推論；未建立空 model.py、tiling.py 或額外框架。
+- 在等待依賴批准時，已用 WSL 系統 Python 的 `ast.parse` 對 4 個模組與 2 個 unittest 檔完成語法檢查（PASS）。沒有將依賴未安裝造成的 import failure 當成功能失敗測試；本次是新功能，runtime correctness checks 待環境可用後執行。
+- 17:38:09 +08:00 在專案根目錄啟動已批准的 `python3 -m venv .venv` 與 `timeout 20m .venv/bin/python -m pip install --no-cache-dir --only-binary=:all: --progress-bar off`，完整參數沿用上方兩個官方 wheel URL 與三個 PyPI 固定版本。此筆記錄時仍在安裝，尚未記 PASS；未使用系統 pip 安裝。
+- README 已列出採用的版本、來源、命令、資源估計與現階段限制；驗證區標成執行中，待實測更新。
+
+- 提交前 `ast.parse`（6 個 Python 檔）與 `tomllib.load(pyproject.toml)` 通過；首次 `git diff --cached --check` 發現兩個新模組末尾多餘空行，已只移除這兩行，再執行相同 whitespace check。尚無 runtime 結果。
