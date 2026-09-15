@@ -47,7 +47,7 @@
 
 ### 2026-09-15 本輪實作授權補充
 
-使用者已啟動實作並授權每個完成步驟 commit；未授權 push、切分支或 worktree 變更。使用者另要求「先跳過，把框架弄起來，我之後再補權重跟資料」：先完成 phase-01 不依賴真實材料的程式與 correctness checks。真實圖片／預訓練權重驗收延後，不以合成資料或 mock 取代 Complete；框架準備完成後記 Blocked，未滿足前置不進 phase-02。依賴／環境仍須按下節具體提案取得批准。
+使用者已啟動實作並授權每個完成步驟 commit；未授權 push、切分支或 worktree 變更。使用者另要求「先跳過，把框架弄起來，我之後再補權重跟資料」：先完成 phase-01 不依賴真實材料的程式與 correctness checks。真實圖片／預訓練權重驗收延後，不以合成資料或 mock 取代 Complete；框架準備完成後記 Blocked，未滿足前置不進 phase-02。本輪具體依賴清單及一次官方來源重試已獲批准，採用版本與命令見 README.md／requirements-wsl.txt，批准與執行證據見 build-log.md；清單外的新依賴／環境變更仍適用下節界線。
 
 ### 實作啟動後的常規範圍
 

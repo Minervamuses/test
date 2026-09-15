@@ -17,8 +17,11 @@
 | spandrel | 0.4.2，PyPI |
 | Pillow | 12.3.0，PyPI |
 | setuptools | 81.0.0，`setuptools.build_meta` |
+| NumPy／safetensors／einops | 2.5.3／0.8.0／0.8.2，PyPI 傳遞依賴 |
+| Triton | 3.6.0，PyPI 傳遞依賴 |
+| CUDA runtime／cuDNN | 12.8.90／9.19.0.56，NVIDIA 官方 wheel |
 
-torch／torchvision 的版本配對依 [PyTorch 官方安裝說明](https://pytorch.org/get-started/previous-versions/)；採 CUDA 12.8 wheel 的依據是 [Blackwell 支援](https://pytorch.org/blog/pytorch-2-7/)。[requirements-wsl.txt](requirements-wsl.txt) 固定上述版本及必要 CUDA wheel 的官方來源；NVIDIA wheel 的 SHA-256 與 PyPI 對應檔案相同。Pip 也會安裝 NumPy、safetensors、einops 等必要傳遞依賴。
+torch／torchvision 的版本配對依 [PyTorch 官方安裝說明](https://pytorch.org/get-started/previous-versions/)；採 CUDA 12.8 wheel 的依據是 [Blackwell 支援](https://pytorch.org/blog/pytorch-2-7/)。[requirements-wsl.txt](requirements-wsl.txt) 固定主要套件、Triton 與必要 CUDA wheel 的版本／官方來源；NVIDIA wheel 的 SHA-256 與 PyPI 對應檔案相同。NumPy、safetensors、einops 等其餘傳遞依賴由 pip 解析，上表記錄本次實際版本，並非完整 lock。
 
 本機唯讀資源觀察為 NVIDIA GeForce RTX 5070 Ti **Laptop** GPU，driver 591.74，VRAM 12227 MiB，compute capability 12.0。這些硬體資訊本身不能證明 checkpoint 可推論；實測狀態見下方「驗證紀錄」。
 
@@ -38,7 +41,7 @@ python -m pip install --no-deps --no-build-isolation -e .
 
 第一步只裝兩個官方 wheel，第二步補齊必要依賴，完成前請勿執行推論。本次先保留第一次下載成功的兩個 wheel，從本機檔案安裝後續接以上依賴命令；沒有額外重跑一次全新的環境建置。
 
-來源採 PyTorch 的 `download.pytorch.org`、NVIDIA 的 `pypi.nvidia.com`，其餘套件使用 PyPI。前者避開本機曾回傳 403 的 `download-r2.pytorch.org`；NVIDIA 來源則處理 PyPI cuDNN 下載過慢的實際問題。CUDA wheel 約 2.93 GB，另有 torch／torchvision 約 0.83 GB 與其餘套件，請保留約 15 GB 磁碟。第一次安裝已中止；使用者批准沿用已下載 wheel、改官方來源重試一次，重試上限 20 分鐘，兩次累計下載上限 6 GB。
+來源採 PyTorch 的 `download.pytorch.org`、NVIDIA 的 `pypi.nvidia.com`，其餘套件使用 PyPI。前者避開本機曾回傳 403 的 `download-r2.pytorch.org`；NVIDIA 來源則處理 PyPI cuDNN 下載過慢的實際問題。CUDA wheel 約 2.93 GB，另有 torch／torchvision 約 0.83 GB 與其餘套件，合計約 4 GB。安裝期間請保留約 15 GB 磁碟；本機完成後 `.venv` 實測約 6.7 GiB。沿用已下載 wheel 的安裝花 11 分 13 秒，其他網路環境的時間未驗證。
 
 ## 準備與執行
 
@@ -58,11 +61,16 @@ python -m drone_sr
 
 ## 驗證紀錄
 
-執行中：環境安裝與 runtime checks 尚未完成。本節將依實際結果更新；目前只完成 Python 語法檢查。
+2026-09-15，在上述 WSL 環境已確認：
 
-準備中的 focused checks：
+- `pip check` 通過；專案 editable 安裝成功。
+- 下列 focused checks **13／13 通過**：I/O 7 項，descriptor／模型載入 6 項。
+- 使用**未訓練的極小 Compact 模型**與合成 5×7 RGB 圖，實際跑 `python -m drone_sr`：CPU 與 CUDA 各成功寫出 10×14 PNG，原圖 SHA-256 不變。CPU 子程序透過 `CUDA_VISIBLE_DEVICES=''` 隱藏 GPU，實際執行 CPU 分支；GPU 子程序自動選 `cuda:0`，wheel 包含 `sm_120`。各命令約 2.03／2.48 秒，僅是這個極小案例的耗時。
+- 缺模型、不可載入模型、壞圖的實際 CLI 錯誤／計數符合預期；既有成功 PNG 在模型錯誤後保持不變。`--help`、空輸入與缺輸入檢查通過。
+- 尚未驗證：真實圖片與預訓練 Compact checkpoint、真實 SR 色彩／內容、SwinIR、大圖／分塊、資料夾 args／批次。未重跑一次全新環境建置。
 
 ```bash
+python -m pip check
 python -m unittest discover -s tests -p 'test_image_io.py' -v
 python -m unittest discover -s tests -p 'test_inference.py' -v
 ```

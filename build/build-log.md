@@ -6,7 +6,7 @@
 
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻礙 |
 |---|---|---|---|---|---|
-| 01 — 單張推論 | In progress | 2026-09-15 | — | 本檔 preflight、批准及框架準備 | 真實材料依使用者要求稍後補齊 |
+| 01 — 單張推論 | Blocked | 2026-09-15 | — | 13 項 focused tests、CPU/GPU 合成 Compact CLI 通過（見下文） | 框架已就緒；等待真實圖片及預訓練 Compact checkpoint 驗收 |
 | 02 — 資料夾 CLI | Not started | — | — | — | 尚未進入實作 preflight |
 | 03 — 模型相容性 | Not started | — | — | — | 尚未進入實作 preflight |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
@@ -134,3 +134,80 @@ python3 -m venv .venv
 - 等待期間以 `PYTHONPATH=src` 與 WSL 系統 Python 3.12 跑過 `python3 -m drone_sr --help`、空 input 的 `python3 -m drone_sr`，均 exit 0；暫存工作目錄缺 input 時 exit 1、未建立 output。三項 guard／help 觀察 PASS，不需 import 推論依賴，不等於 SR 完成。
 
 - 重試的 pip 輸出確認 15 個 NVIDIA wheel 全部已下載；接著發現最初清單的兩個 `--find-links <單一 wheel URL>` 被 pip 當 HTML page 而跳過。已將清單改為要求先安裝 torch／torchvision，README 分成 `pip install --no-deps <兩個官方 wheel URL>` 與 `pip install -r requirements-wsl.txt`；本次實際重用的兩個本機 wheel 已安裝，故此警告未阻止續接依賴。不宣稱重跑過全新環境。
+
+
+### 2026-09-15T18:07:40+08:00 — Phase 01 框架驗證完成，真實驗收維持 Blocked
+
+#### 環境與必要軟體檢查
+
+- 官方來源設定已提交 `35e4037`。唯一已批准的重試於 17:50:53 開始、18:02:06 成功（11 分 13 秒，exit 0）；drone-sr 0.1.0 editable 安裝完成。兩次下載依已知 wheel 大小及中止片段加總約 4.2 GB，低於累計 6 GB 上限；這是套件大小估算，未量測網卡總流量。
+- `.venv` 實測 `du -sh .venv` 為 6.7G。Python 3.12.3／pip 24.0；torch 2.11.0+cu128、torchvision 0.26.0+cu128、spandrel 0.4.2、Pillow 12.3.0、setuptools 81.0.0。
+- 傳遞依賴實際版本：numpy 2.5.3、safetensors 0.8.0、einops 0.8.2、triton 3.6.0、cuda-bindings 12.9.7、cuda-pathfinder 1.8.1、cuda-toolkit 12.8.1、typing_extensions 4.16.0、filelock 3.32.6、fsspec 2026.7.0、networkx 3.6.1、sympy 1.14.0、mpmath 1.3.0、Jinja2 3.1.6、MarkupSafe 3.0.3。15 個 NVIDIA runtime wheel 的實際版本與 SHA-256 已固定在 requirements-wsl.txt；不另建 lock 或環境管理工具。
+- WSL 專案根目錄，啟用 `.venv` 後實際命令：
+
+~~~bash
+python -m pip check
+python -m unittest discover -s tests -p 'test_image_io.py' -v
+python -m unittest discover -s tests -p 'test_inference.py' -v
+~~~
+
+- PASS：`pip check` 回報 No broken requirements found；I/O 7/7，0.049 秒；inference 6/6，0.038 秒（unittest 本身計時，不含 interpreter/import）。沒有 skipped tests。測試中的 toy descriptor 與 mock 僅是 correctness 證據。
+- I/O 證據包含已知 RGB 像素、float32／BCHW／[0,1]、灰階轉 RGB、PNG round trip、clamp／round、高位深拒絕、non-finite／編碼失敗保留既有結果、來源 path／symlink／hard link 拒絕。
+- inference 證據包含真正 ImageModelDescriptor 對奇數尺寸 padding／裁回、錯誤輸出尺寸拒絕、缺模型、真正 ModelLoader 對壞 checkpoint 的錯誤、CPU／float32／eval 準備，以及非 RGB／非 image descriptor 拒絕。
+- 同一 shell 呼叫尾端的唯讀 `du` 因 PowerShell stdin 結尾 CR 被誤當路徑字元而 exit 1；上述 13 項測試均已通過。改用 `wsl.exe -d Ubuntu-24.04 -- bash -lc` 的 `du -sh .venv` 得到 6.7G，沒有重跑已通過的 focused tests。
+
+#### 代表整合：真正軟體執行，合成材料／未訓練權重
+
+實際命令：
+
+~~~bash
+.venv/bin/python /tmp/drone-sr-install-8lniopxv/validate_phase01.py
+.venv/bin/python -m drone_sr --help
+.venv/bin/python -m drone_sr
+.venv/bin/python -m pip list --format=json
+~~~
+
+- 整合 script exit 0。採 `torch.manual_seed(0)`、Spandrel 0.4.2 內建 Compact，num_in_ch=3、num_out_ch=3、num_feat=8、num_conv=1、upscale=2 的**未訓練**小模型，保存 state_dict 後交給真正 ModelLoader 載入；不是預訓練 checkpoint 相容性或畫質驗收。
+- 合成 RGB 為 5×7：pixel(x,y) = (50x, 35y, 20(x+y))。證據保留於 `/tmp/drone-sr-phase01-6d4dh_hr/`；摘要為該目錄 `evidence.json`，script 位於上列暫存路徑。臨時 `models/model.pth` 僅在不存在時建立為此 checkpoint 的 symlink，測後移除；未留下模型作交付預設。
+- 子程序實際執行 `.venv/bin/python -m drone_sr`，cwd 各為下表 cpu／cuda 目錄；CPU 子程序設定 `CUDA_VISIBLE_DEVICES=''`，實際跑 CPU 計算，沒有 mock torch 的 CUDA 判斷；GPU 子程序使用可見 GPU 自動選 cuda:0。兩者均只有一張輸入，Processed 1、Failed 0。
+- CUDA 實測：torch.version.cuda=12.8；RTX 5070 Ti Laptop、capability (12,0)；wheel arch list 包含 sm_120；模型驗證前空閒 VRAM 10959 MiB。小型 GPU forward 成功，不以 nvidia-smi 代替 kernel 證據。
+
+| 裝置 | 輸入 → 輸出 | 尺寸 W×H | CLI 耗時 | 結果 |
+|---|---|---|---|---|
+| cpu | `/tmp/drone-sr-phase01-6d4dh_hr/cpu/input/synthetic.png` → `/tmp/drone-sr-phase01-6d4dh_hr/cpu/output/synthetic.png` | 5×7 → 10×14（scale 2） | 2.029 秒 | PNG/RGB 可解碼、來源 hash 不變 |
+| cuda | `/tmp/drone-sr-phase01-6d4dh_hr/cuda/input/synthetic.png` → `/tmp/drone-sr-phase01-6d4dh_hr/cuda/output/synthetic.png` | 5×7 → 10×14（scale 2） | 2.475 秒 | PNG/RGB 可解碼、來源 hash 不變 |
+
+- checkpoint：`/tmp/drone-sr-phase01-6d4dh_hr/synthetic-untrained-compact.pth`；SHA-256 `51c68a5b69c1eaa2430dce43ae6b3dc28af7b8baedd1d174e3704e06131c9e12`。
+- 兩份合成輸入 SHA-256 均為 `2dc8be744ea6c05a25a3d4a36b1ea099794efb52febd56f07c751c2bf7353a95`，執行前後相同；CPU／GPU 輸出 SHA-256 均為 `03ca13591bc4f1f73b5992de9961b367e900c1d83f23d797cc31634480167169`。此一致性只描述本次小案例。
+- 透過 image viewer 開啟 cpu/input/synthetic.png 與 cuda/output/synthetic.png，確認是可顯示的彩色 PNG；尺寸與像素證據以解碼及 tests 為準。**沒有真實圖片的人工色彩／內容驗收**。
+- 真正 CLI 負向：`corrupt/input/broken.PNG`（bytes `not an image`）→ exit 1，Processed 0／Failed 1，未建立 output；缺模型 → exit 1、`SR model not found: models/model.pth`；invalid checkpoint（bytes `not a checkpoint`）→ exit 1、`Unable to load SR model: invalid load key, 'n'.`。後兩者保留前述成功 PNG 的 hash。
+- 安裝後再次執行 `--help` 與空 input 的預設命令：exit 0，分別正常顯示 help 與 No supported images found in input/。缺 input 先前用同一源碼在暫存 cwd 驗證 exit 1。
+- `git check-ignore -v .venv/bin/python models/model.pth input/DJI.JPG output/DJI.png` 確认環境、權重、圖片與產出均排除；AGENTS.md 保持原 hash。沒有 push、切分支或 worktree 變動。
+
+#### Phase 01 acceptance 核對
+
+| Acceptance | 結果／證據 |
+|---|---|
+| 真實單張 Compact PNG 已開啟、內容尺寸正常、原圖不變 | **UNAVAILABLE**：使用者延後提供真實圖片及預訓練 checkpoint；上表只有合成材料 |
+| Spandrel descriptor 載入／推論，無架構專屬 production flow | **PASS（框架）**：load_model → ModelLoader → ImageModelDescriptor → descriptor(tensor)；CPU／GPU 合成 Compact CLI 成功 |
+| I/O、尺寸、載入失敗最小測試 | **PASS**：13/13 focused checks，另有真正 CLI 負向檢查 |
+| 環境／checkpoint／命令／耗時可追溯 | **PASS（框架材料）**：本節版本、path、hash、尺寸、裝置、耗時；真實材料仍 unavailable |
+
+#### GOALS.md 八項成功條件及 PLANS 整體完成標準核對
+
+| GOALS 項次 | 已觀察／未完成 |
+|---|---|
+| 1 預設與指定資料夾、真實 PNG／摘要 | 單張預設合成 CLI 通過；指定資料夾／批次尚未實作，真實 PNG 未驗證 |
+| 2 Compact＋SwinIR 預訓練 checkpoint、單一預設 | 共用 descriptor 框架已運行；兩個預訓練 checkpoint 均未提供，未選定交付預設 |
+| 3 自動 GPU／CPU、明示裝置 | 極小合成模型兩個分支實際執行，CPU 以環境隱藏 GPU；真實預訓練模型仍待驗收 |
+| 4 RGB／float／BCHW／dtype/device／嚴格尺寸 | focused checks 與 5×7 → 10×14 CPU/GPU 整合通過；無真實圖證據 |
+| 5 自動 overlap tiling／全部邊界／無明顯接縫 | 尚未實作或驗證（phase-04） |
+| 6 建立輸出、保留原始／其他輸出、成功才覆蓋 | 單張 I/O 與負向 CLI 證據通過；批次和自訂資料夾邊界尚待 phase-02 |
+| 7 各錯誤／計數／壞圖繼續 | 缺輸入／空輸入／缺模型／載入失敗／單張壞圖有證據；批次繼續／總數對帳尚待 phase-02 |
+| 8 correctness tests＋實測 README | 已寫採用版本與命令，13 項測試通過；明列合成／mock／真實未驗證，未重跑全新環境建置 |
+
+- **整體未完成。** Phase-01 因真實驗收缺項 In progress → Blocked；phase-02、03、04 保留 Not started，未進入依賴階段。README 與 PLANS 已同步本輪批准及已驗證範圍，未降低 GOALS 的完成標準。
+- 下一個符合依賴條件的動作仍為 phase-01：使用者提供一張真實小圖與來源／使用條件已確認的 Compact checkpoint 後，核對 descriptor 與原始 hash，執行真實單張及人工檢視；通過前不標 Complete。
+- 沒有為 routine checks 建立 context／code_review 文件，未擴充其他階段或再跑 full suite／模型 sweep。
+
+- 收尾已移除 `/tmp/drone-sr-install-8lniopxv/` 內兩個已使用的臨時 wheel（逐檔確認目錄及大小後 unlink，共約 828 MB），保留小型驗證 script／來源清單及合成證據目錄供追溯。確認專案 `models/model.pth` 已不存在；未留下未訓練模型作預設。
