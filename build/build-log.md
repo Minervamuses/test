@@ -211,3 +211,24 @@ python -m unittest discover -s tests -p 'test_inference.py' -v
 - 沒有為 routine checks 建立 context／code_review 文件，未擴充其他階段或再跑 full suite／模型 sweep。
 
 - 收尾已移除 `/tmp/drone-sr-install-8lniopxv/` 內兩個已使用的臨時 wheel（逐檔確認目錄及大小後 unlink，共約 828 MB），保留小型驗證 script／來源清單及合成證據目錄供追溯。確認專案 `models/model.pth` 已不存在；未留下未訓練模型作預設。
+
+### 2026-09-16T21:56:24+08:00 — 取得使用者指定的單一 WhaleDrone 測試影片
+
+- 使用者授權只下載指定 MP4，放入專案根目錄的新資料夾；沿用每一步需 commit 的指示。未下載同名 SRT、其他影片、模型或其他資料集檔案。
+- 唯讀 preflight：專案 `/home/minervamuses/drone-image-analysis`，Ubuntu 24.04／WSL2，使用 WSL 的 Bash、Git 2.43.0、Python 3.12.3；Git 工作區原本乾淨，`test-data/` 原本不存在，磁碟可用約 835 GiB。重讀適用 AGENTS.md，未修改指引。
+- 來源：[WhaleDrone](https://huggingface.co/datasets/LucieLprt-Dvldr/WhaleDrone)，資料集頁面標示 CC-BY-NC-4.0。對指定檔案 `resolve/main` 做 HEAD，取得 revision `e78c4db9b5e77a582fdac3cb24085c9d8286f818`、大小及 SHA-256；實際下載固定該 revision：
+  `https://huggingface.co/datasets/LucieLprt-Dvldr/WhaleDrone/resolve/e78c4db9b5e77a582fdac3cb24085c9d8286f818/videos/Jan-14th-2026-06-15PM-Flight-Airdata/DJI_20260114193309_0004_V.MP4?download=true`
+- 實際以 `wsl.exe -d Ubuntu-24.04 -- python3 -` 執行 stdlib `urllib.request.urlopen(..., timeout=30)`，每次讀取 1 MiB，exclusive 寫入新建 `test-data/` 中的 `.MP4.part`；設定 540 秒傳輸上限。下載過程計算 SHA-256，大小與 hash 正確才改名。52.16 秒完成，exit 0，沒有續傳或第二次下載。
+- 本機檔案：`/home/minervamuses/drone-image-analysis/test-data/DJI_20260114193309_0004_V.MP4`；大小 **613,561,776 bytes**；SHA-256 **`8dddd14150efee239002d536fa33446629cbde3979ce4e76429a23a4c1f56fda`**，與來源 `X-Linked-Etag` 一致。
+- 在 WSL 專案根目錄實際執行：
+
+~~~bash
+ffprobe -v error -show_entries format=duration,size:stream=index,codec_type,codec_name,width,height,avg_frame_rate,nb_frames -of json test-data/DJI_20260114193309_0004_V.MP4
+sha256sum test-data/DJI_20260114193309_0004_V.MP4
+find test-data -maxdepth 1 -type f -printf "%f\n"
+git check-ignore -v test-data/DJI_20260114193309_0004_V.MP4
+git diff --check
+~~~
+
+- PASS：ffprobe exit 0；主影像 stream 0 為 H.264、3840×2160、30000/1001 fps；容器 duration 56.656600 秒、nb_frames 1698（中繼資料，未逐幀解碼）。重新讀取本機檔案計算的 SHA-256 相符；資料夾只有上述一支 MP4，沒有殘留 `.part`。新增 `.gitignore` 的 `/test-data/`，ignore 核對與 diff whitespace 檢查通過；影片不納入 Git。
+- **Phase 01 維持 Blocked，後續階段狀態不變。** 本次只取得影片素材，未抽幀、未取得預訓練權重、未跑 SR 或人工畫質驗收；不把檔案完整性與影片中繼資料檢查當成真實推論通過。未改程式，故未重跑軟體測試。
