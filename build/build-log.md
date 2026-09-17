@@ -350,3 +350,10 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 使用者批准最多 30 分鐘／70 MB 單次指定權重下載，並明確授權計劃內工作一律執行、不再詢問。PLANS 已記錄最新授權；仍保留階段依賴、失敗次數、資料保護及原非目標。Phase 03 Blocked → In progress。
 - 新任務 gate：讀 root AGENTS，依序核對 GOALS／PLANS／build-log／phase-03 與實際 inference；main `03e1202`、git status 乾淨；WSL Linux shell／Git／Python 一致。GPU 12227 MiB total／10518 MiB free、driver 591.74；RAM 約 30 GiB available、磁碟約 842 GiB free。來源、大小、預定檢查與成本沿用上一節，沒有新材料矛盾；上輪 6／6 focused tests 有效，不無故重跑。
 - 下一步只下載已選定 SwinIR-M 原檔至 models/，本次上限 1800 秒；每個真實推論程序上限 120 秒。已完成來源及共用路徑唯讀準備，現在可執行，不再以先前缺授權狀態停止。
+
+
+### 2026-09-17T21:42:48+08:00 — Phase 03 指定 SwinIR 權重就緒
+
+- 前一步 `432af28` 記錄完整計劃授權。WSL 專案根目錄實際執行 `python3 -u test-data/phase-03-swinir-20260917/download.py`，一次 HTTP 200 下載 **67,129,861 bytes／166.952 秒**、exit 0。前段慢，後段提速；先前約 24 分鐘只是小量測速估計，實際未超過 30 分鐘上限，也未重試。只取得指定 SwinIR checkpoint，沒有其他資料或權重。
+- 本機 `models/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth`；SHA-256 **`b9afb61e65e04eb7f8aba5095d070bbe9af28df76acd0c9405aeb33b814bcfc6`**，下載時計算後又重新讀檔核對相同；大小符合官方 API，官方 digest=null，未聲稱官方 hash 比對。`.part` 完成後改名，完整 provenance 在同目錄 provenance.json／download.py。
+- 既有 Compact 原檔、model.pth 相對 symlink 保留；尚未模型 forward。一次性 validate_swinir.py 已準備、Python compile 語法檢查通過；採父程序 try/finally 管理模型切換，子程序各 timeout 120 秒，先真實 CLI 再獨立量測及兩個最小 tensor 尺寸案例。不把腳本準備記成驗收成功。
