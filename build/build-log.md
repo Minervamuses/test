@@ -9,7 +9,7 @@
 | 01 — 單張推論 | Complete | 2026-09-15 | 2026-09-17 | 真實 Compact GPU 512→2048 PNG／人工檢視／原始 hash／VRAM 通過；既有 13 tests 及負向 CLI 證據 | 無；4K 不屬本階段驗收 |
 | 02 — 資料夾 CLI | Complete | 2026-09-17 | 2026-09-17 | CLI 12＋I/O 7 tests；預設／args 真實 GPU 批次 2 成功 1 壞圖，極小真實 CPU 通過 | 無 |
 | 03 — 模型相容性 | Complete | 2026-09-17 | 2026-09-17 | 真實 SwinIR 512→2048、17×19／1×1、共用 CLI／FP32／GPU／圖片及 hash 通過 | 無；Compact 保持候選，SwinIR tiling metadata 交接 phase-04 |
-| 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
+| 04 — 分塊與驗收 | In progress | 2026-09-17 | — | preflight 完成；先驗 core／halo 座標再最小實作與真實圖片 | 尚待所有 tiling／大圖／整體 acceptance |
 
 只使用 Not started、In progress、Blocked、Complete。Complete 必須有全部必要 acceptance／檢查證據。
 
@@ -371,3 +371,14 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 人工開啟原圖與本次 SwinIR PNG：波紋／亮點相對位置、藍綠色、朝向正常，無空白或殘留邊框；細紋平滑，沒有可辨識鯨魚，不宣稱還原真實新增細節／畫質排名。
 - Acceptance：Compact 既有真實圖＋本次 SwinIR 同一路徑 **PASS**；不符尺寸要求／裁回 **PASS**；CLI 換模型成功且 production 未變，重用 phase-02 批次／錯誤及本階段 6／6 focused tests **PASS**；保持使用者先前指定、資源較低且已跑通的 Compact 作候選 **PASS**。Phase 03 In progress → Complete；phase-04 仍須驗兩模型最小 tiled 與候選大圖，未推定通過。
 - 新 metadata 對下游有實質影響：Spandrel 的 DISCOURAGED 表示可分塊但可能受上下文影響，不能當 SUPPORTED。已記 context 並補 phase-04：查原因、兩模型最小 direct/tile 視覺確認，Compact 作大圖候選；不增加 architecture 分支或全圖 SwinIR sweep。
+
+
+### 2026-09-17T21:47:34+08:00 — Phase 04 唯讀 preflight
+
+- Phase 03 Complete 由 `5b13e75` 提交，前置已滿足；讀 phase-04、phase-03 context、相關 inference／image_io／CLI／tests。只有本輪可識別變更，沒有使用者修改。使用者已批准計劃內全部必要工作，以下不重複詢問。
+- 材料重用本機既有 frame_seek10s.png，Pillow 讀到 RGB **3840×2160**，以及 phase-01 512 crop；不下載新資料、不另抽影片。GPU 空閒 10521 MiB、RAM available 約 30 GiB。4× 全圖為 **15360×8640**，RGB FP32 拼接本體 **1,592,524,800 bytes（約 1.48 GiB）**；考慮 finite／clamp／round／uint8／PNG 副本，預留約 8 GiB RAM，不假稱 tiling 消除完整輸出的 RAM。
+- 固定設定先採 core=512、四側 halo=32，最大模型 tile 576×576；外邊界依原圖實際裁切。兩邊皆不超過 512 時 direct，否則 auto tile。每塊沿用同一 descriptor／dtype／device／scale／輸出尺寸核對，CPU 保存全圖與拼回 tensor，GPU 只留當前 tile；每核心只寫一次，不平均接縫、不用 padded 座標拼回。
+- 先新增 tests/test_tiling.py 最小座標 oracle（core8／halo2，scale2／3），辨識尚無 tiling 的失敗，再新增計劃內 tiling.py 與最小 inference.py 接線；不改 CLI／依賴、無 precision 調整／retry 框架。涵蓋可整除、非整除、小於 tile、奇數、descriptor padding、錯誤／失敗傳遞；toy test 不能當真實畫質。
+- 真實最小驗收：Compact 用可 direct 的約 640×576 frame crop，比對同一圖 direct／512 core auto tile；SwinIR 用約 192×176 crop、core128／halo32 作兩模型共用分塊與同位置視覺檢查。SwinIR DISCOURAGED 的原因與限制已查並記 context，不宣稱其大型圖無縫。通過後 Compact 對既有完整 4K frame 真正 CLI 自動分塊，開啟完整 PNG 和接縫／右下角局部，核對輸入及其他输出 hash。
+- 已測 Compact 512 forward 約 0.22 秒，full frame 約 8×5=40 tiles，加大 tile 與 PNG 編碼預估數十秒至數分鐘；小例程序限 180 秒、大圖 CLI 限 300 秒，無 sweep／付費／下載。必要檢查失敗先處理，兩次聚焦修正或一次昂貴嘗試失敗按既有停止條件，不進行無界實驗。
+- 通過後重用既有預設／args／壞圖／覆蓋／CPU 真實證據，針對變更路徑做最小整合，收尾完整既有 suite 一次。現在只完成 preflight，尚未有 tiling PASS。
