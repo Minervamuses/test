@@ -6,7 +6,7 @@
 
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻礙 |
 |---|---|---|---|---|---|
-| 01 — 單張推論 | In progress | 2026-09-15 | — | 13 項 focused tests、CPU/GPU 合成 Compact CLI 通過；2026-09-17 恢復真實驗收 | 已獲指定 Compact 權重／小裁切驗證授權，尚待執行 |
+| 01 — 單張推論 | Complete | 2026-09-15 | 2026-09-17 | 真實 Compact GPU 512→2048 PNG／人工檢視／原始 hash／VRAM 通過；既有 13 tests 及負向 CLI 證據 | 無；4K 不屬本階段驗收 |
 | 02 — 資料夾 CLI | Not started | — | — | — | 尚未進入實作 preflight |
 | 03 — 模型相容性 | Not started | — | — | — | 尚未進入實作 preflight |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
@@ -257,3 +257,15 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 已開啟 full frame，再以 Pillow `Image.crop((1536,768,2048,1280))` 取得原尺寸 512×512 海面波紋／反光裁切，保存 `input/whaledrone_seek10s_x1536_y768_512.png`；SHA-256 `ad7d8815928ea78bb2243af8639541216e83a7444d78272d91451a2d7dd63faa`。已開啟裁切確認內容／RGB 色彩；此樣本没有可辨識鯨魚，不用來驗證動物細節。
 - `.venv/bin/python -` 呼叫現有 `load_model()`：實際 descriptor architecture `Compact`／model class `SRVGGNetCompact`、scale 4、channels 3→3、1,213,296 parameters、`cuda:0`、float32、eval；size requirements minimum=0／multiple_of=1／square=False。PyTorch 2.11.0+cu128／CUDA 12.8，capability (12,0)，wheel 包含 sm_120。詳細值保存 `test-data/phase-01-compact-20260917/descriptor-and-crop.json`。
 - 模型已載入但尚未 forward；本步只完成材料與 descriptor 核對。input／output／models／test-data 仍由既有 `.gitignore` 排除，不提交二進位檔。
+
+### 2026-09-17T20:21:03+08:00 — Phase 01 真實 Compact GPU 驗收 Complete
+
+- 前一步 `25ce46b` 已提交材料紀錄。沒有改 production code／環境；沿用既有 13 項 focused tests 與缺／壞 checkpoint 真正 CLI 負向證據，沒有把 mock 記為真實推論。
+- 實際命令：WSL 專案根目錄 `timeout 260 .venv/bin/python test-data/phase-01-compact-20260917/validate_compact.py`，exit 0、共約 9.51 秒。此一次性紀錄 script 先以 subprocess 執行**未加 instrumentation 的** `.venv/bin/python -m drone_sr`（timeout 120 秒），再以 120 秒 alarm 呼叫相同 production `load_model/read_image/upscale` 測量 GPU；沒有更換 descriptor、mock、warmup 或參數 sweep。
+- 真正 CLI：`Device: cuda:0`、`Model: loaded`、Images 1、Processed 1、Failed 0，exit 0；程序啟動至結束 5.902 秒。512×512 RGB → 2048×2048 RGB PNG，嚴格為 scale 4，輸出為 `output/whaledrone_seek10s_x1536_y768_512.png`，3,647,135 bytes，SHA-256 `db7142ab8ccb9797c411af711ddb44a3b26f45b4b35e30ca987cda810289a33a`。
+- 額外一次量測同一 production 路徑（正式 Compact／float32／cuda:0）：以 `torch.cuda.synchronize()` 包住 CPU tensor 上傳＋upscale，0.219621 秒；模型載入＋讀圖＋上傳／推論共 0.386703 秒（不含 imports）。`torch.cuda.reset_peak_memory_stats()` 後，載入至 forward 結束 allocated peak 276,599,808 bytes（263.786 MiB）、reserved peak 297,795,584 bytes（284 MiB）；**不含 CUDA context、其他程序與後續輸出驗證／PNG 編碼的配置**，不冒稱整卡峰值或 steady-state benchmark。
+- PASS：量測 tensor finite，shape `(1,3,2048,2048)`；依 production clamp／round 規則轉 uint8 後，與真正 CLI PNG 每個像素相同。來源裁切 SHA、614 MB 原影片 SHA、checkpoint SHA 均與準備時相同。完整命令／stdout／metrics 為該 evidence 目錄的 `validate_compact.py`、`cli.txt`、`validation.json`，所有圖片可回溯本節及上節 path／hash／crop box。
+- 人工驗收：開啟 512×512 原圖及本次 2048×2048 PNG；海面波紋、反光相對位置及藍綠色一致，沒有旋轉、色彩通道錯置或空白輸出；SR 有明顯平滑細紋／強化局部邊緣。此觀察證明可用的單張輸出，不宣稱還原真實新增細節或畫質優於其他方法；此裁切無可辨識鯨魚。沒有 PSNR／SSIM、其他模型或 4K 全圖推論。
+- Acceptance 逐項：真實 PNG 開啟／內容尺寸／原始保留 **PASS**；Spandrel descriptor 共用路徑 **PASS**；既有 I/O／尺寸／載入失敗 focused evidence **PASS**；環境、來源／權重、命令／耗時／VRAM 可追溯 **PASS**。Phase 01 In progress → Complete。
+- 採用指定 checkpoint 作目前固定 `models/model.pth` 候選並寫入 README；此 512×512 case 的 VRAM 有餘裕，不能推定完整 4K 或最終 tiling 已驗收。整體 GOALS 尚未完成：#1 尚缺 args／批次，#2 尚缺 SwinIR，#3 真實 GPU 已補足、CPU 有既有極小合成執行，#4 真實尺寸／dtype 通過，#5 tiling 未實作，#6–7 尚缺批次完整行為，#8 README 已補實測、整體收尾仍待後續。
+- 依既有自主計畫，下一個符合依賴條件為 phase-02。每步 commit 沿用；未批准其他 checkpoint 或資料下載。

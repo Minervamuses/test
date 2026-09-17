@@ -1,8 +1,8 @@
 # Drone Image Super-Resolution
 
-本機、單一 Spandrel 推論流程。目前實作 **Phase 01 單張框架**：從 `input/` 讀取一張圖片，使用專案內的 `models/model.pth`，將同 stem 的 RGB PNG 寫入 `output/`，保留原圖。
+本機、單一 Spandrel 推論流程。目前完成 **Phase 01 真實單張驗證**：從 `input/` 讀取一張圖片，使用專案內的 `models/model.pth`，將同 stem 的 RGB PNG 寫入 `output/`，保留原圖。
 
-**真實圖片與預訓練權重尚待提供，未完成真實 SR 驗收。** 完整批次、`--input`／`--output`、SwinIR 相容性及大圖分塊屬後續階段，目前未提供。請先使用一張小圖；現階段多張輸入會明確停止。
+已採用官方 `realesr-general-x4v3.pth`，通過真實影片 512×512 裁切的 GPU 推論。完整批次、`--input`／`--output`、SwinIR 相容性及大圖分塊屬後續階段，目前未提供。請先使用一張小圖；現階段多張輸入會明確停止。此驗證不代表完整 4K 或影片流程已完成。
 
 ## 採用的環境與版本
 
@@ -45,7 +45,7 @@ python -m pip install --no-deps --no-build-isolation -e .
 
 ## 準備與執行
 
-1. 將來源與使用條件已確認的 Real-ESRGAN Compact RGB SR `.pth` 權重放在專案的 `models/model.pth`。程式不會下載模型；實際 descriptor 的 scale／channels 與 checkpoint 身分仍需驗收。
+1. 將下方指定的 Compact RGB SR `.pth` 權重準備為專案的 `models/model.pth`。程式不會下載模型。本機已保存原檔名，並以相對 symlink `models/model.pth → realesr-general-x4v3.pth` 使用它。
 2. 將一張小圖片放在 `input/` 第一層，接受 `.jpg`、`.jpeg`、`.png`、`.tif`、`.tiff`（大小寫皆可）。
 3. 在專案根目錄、啟用環境後執行：
 
@@ -59,6 +59,13 @@ python -m drone_sr
 
 缺輸入／缺模型／模型載入失敗會報錯；空輸入顯示 `No supported images found in input/`。單張成功或失敗均有對應檔名與 `Processed`／`Failed` 摘要。
 
+## 採用的權重
+
+- 檔案：[realesr-general-x4v3.pth（官方下載）](https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth)，4,885,111 bytes；[release v0.2.5.0](https://github.com/xinntao/Real-ESRGAN/releases/tag/v0.2.5.0)，asset id 76259217，asset 更新時間 2022-08-30。
+- 本機 SHA-256：`8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292`。官方 API 未提供 digest；此值用於本次取得檔案的追溯與後續一致性檢查。
+- 實際 descriptor：Compact／SRVGGNetCompact、RGB 3→3、原生 4×、1,213,296 個參數；本程式採 float32。只使用此單一 checkpoint，沒有混合另一個降噪權重。
+- 官方 repository [授權文件](https://github.com/xinntao/Real-ESRGAN/blob/v0.2.5.0/LICENSE) 為 BSD-3-Clause。權重與資料不納入 Git；另一台機器需另外準備檔案。
+
 ## 驗證紀錄
 
 2026-09-15，在上述 WSL 環境已確認：
@@ -67,7 +74,14 @@ python -m drone_sr
 - 下列 focused checks **13／13 通過**：I/O 7 項，descriptor／模型載入 6 項。
 - 使用**未訓練的極小 Compact 模型**與合成 5×7 RGB 圖，實際跑 `python -m drone_sr`：CPU 與 CUDA 各成功寫出 10×14 PNG，原圖 SHA-256 不變。CPU 子程序透過 `CUDA_VISIBLE_DEVICES=''` 隱藏 GPU，實際執行 CPU 分支；GPU 子程序自動選 `cuda:0`，wheel 包含 `sm_120`。各命令約 2.03／2.48 秒，僅是這個極小案例的耗時。
 - 缺模型、不可載入模型、壞圖的實際 CLI 錯誤／計數符合預期；既有成功 PNG 在模型錯誤後保持不變。`--help`、空輸入與缺輸入檢查通過。
-- 尚未驗證：真實圖片與預訓練 Compact checkpoint、真實 SR 色彩／內容、SwinIR、大圖／分塊、資料夾 args／批次。未重跑一次全新環境建置。
+- 當時尚未驗證真實圖片與預訓練 Compact checkpoint；此缺項已於下列 2026-09-17 單張驗證補足。SwinIR、大圖／分塊、資料夾 args／批次仍未驗證；未重跑一次全新環境建置。
+
+2026-09-17，使用上述正式權重與已下載的 WhaleDrone 影片：
+
+- 從第 10 秒 seek 畫面取 `(x=1536, y=768, w=512, h=512)` 海面裁切，執行真正 `.venv/bin/python -m drone_sr`；`cuda:0`、Processed 1／Failed 0，產生 2048×2048 RGB PNG，影片／輸入／權重 hash 不變。
+- CLI 包含程序啟動約 5.90 秒。另一次同一 production 函式路徑量測：GPU 同步計時的上傳＋推論約 0.220 秒，PyTorch 峰值 allocated 約 264 MiB／reserved 284 MiB（模型載入至推論結束，不含 CUDA context／其他程式或 PNG 輸出階段；不是整張顯卡用量）。沒有 warmup 或參數掃描，兩次結果像素一致。
+- 已開啟原圖及 PNG：海面構圖、反光位置與藍綠色正常；細紋較平滑，未證明新增紋理是真實細節，沒有畫質分數或鯨魚細節驗收。此小裁切的 VRAM 有餘裕，不能據此承諾 4K 全圖或整段影片效能。
+- 輸入：`input/whaledrone_seek10s_x1536_y768_512.png`；輸出：`output/whaledrone_seek10s_x1536_y768_512.png`；完整來源／命令／雜湊／量測存於 `test-data/phase-01-compact-20260917/` 與 build-log。此目錄的腳本是單次驗證紀錄，不是正式 CLI 或可重跑 benchmark。
 
 ```bash
 python -m pip check
