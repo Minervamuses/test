@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|
 | 01 — 單張推論 | Complete | 2026-09-15 | 2026-09-17 | 真實 Compact GPU 512→2048 PNG／人工檢視／原始 hash／VRAM 通過；既有 13 tests 及負向 CLI 證據 | 無；4K 不屬本階段驗收 |
 | 02 — 資料夾 CLI | Complete | 2026-09-17 | 2026-09-17 | CLI 12＋I/O 7 tests；預設／args 真實 GPU 批次 2 成功 1 壞圖，極小真實 CPU 通過 | 無 |
-| 03 — 模型相容性 | Blocked | 2026-09-17 | — | 已讀 phase-03 並確認 Spandrel 內建 SwinIR loader；未執行第二模型 | 缺指定 SwinIR 本機 checkpoint／來源或下載授權 |
+| 03 — 模型相容性 | Blocked | 2026-09-17 | — | 已選定官方 SwinIR-M 4×／512 真實裁切，來源與小量測速完成；未執行模型 | 67.13 MB 下載估約 24 分鐘，待超過十分鐘工作的具體時間授權 |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
 
 只使用 Not started、In progress、Blocked、Complete。Complete 必須有全部必要 acceptance／檢查證據。
@@ -322,3 +322,17 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 | 8 correctness tests 與可追溯 README | 當前範圍 PASS：25 tests、真實執行、版本／權重／來源／命令／限制已記錄；整體最終驗收尚缺第 2／5 項 |
 
 - PLANS 整體完成標準尚未達成：Phase 01／02 Complete，03 Blocked，04 Not started。沒有將計畫、mock、skipped 或尚未執行部分当作完成。此次沒有新 dependencies、其他資料下載、push、分支／worktree 變更，也沒有修改 AGENTS.md。
+
+
+### 2026-09-17T21:27:32+08:00 — Phase 03 恢復 preflight 與下載時間界線
+
+- 使用者指示「用512的，繼續」，沿用討論中的 SwinIR-M real-world 4×，批准此 checkpoint 與 512×512 驗證；先前「缺模型選擇／下載授權」已由本次決定補足。每步 commit 授權沿用；未批准其他資料／權重／依賴。
+- 唯讀 gate：WSL Ubuntu 24.04，Linux Bash／Git 2.43.0／Python 3.12.3，專案 `/home/minervamuses/drone-image-analysis`；main HEAD `064170e`，工作區乾淨。依序讀適用 AGENTS、GOALS、PLANS、build-log、phase-03、相關 inference／I/O／CLI／test_inference／pyproject／README；build/ 沒有 context 或 code_review 文件。首次 cat 使用錯誤 phase 檔名回報不存在，find 確認後改讀實際 phase-03-model-compatibility.md；沒有略過階段文件。
+- `nvidia-smi --query-gpu=name,memory.total,memory.free,driver_version,utilization.gpu --format=csv`：RTX 5070 Ti Laptop，12227 MiB total／10520 MiB free、driver 591.74、utilization 6%；`free -h` 約 30 GiB available；`df -h .` 約 842 GiB available。先前 512 約 4–6 GB VRAM 是粗估，尚無此 checkpoint 的本機峰值證據。
+- 官方 GitHub API `https://api.github.com/repos/JingyunLiang/SwinIR/releases/tags/v0.0`，WSL Python stdlib urllib 讀取指定 asset：release id 48474885，asset id 44142419，檔名 `003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth`，**67,129,861 bytes**，created 2021-09-06T09:58:38Z、updated 09:58:42Z；digest=null，下載後只能先記本機 SHA，不能聲稱官方 SHA 驗證。
+- 精確來源：`https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth`；官方 repository 的 `https://raw.githubusercontent.com/JingyunLiang/SwinIR/main/LICENSE` 本次讀到 Apache-2.0。web reader 未能開啟 API，改以上述 WSL stdlib 得到真實 metadata；未增加套件。
+- 單次唯讀測速：WSL `python3 -`，`urllib.request.Request(asset_url, headers={'Range':'bytes=0-1048575'})`、urlopen timeout=20，read(1048576) 後關閉；HTTP 206、讀取 **1,048,576 bytes／22.683931 秒**，內容僅在記憶體，未保存部分權重。以含連線的速度线性粗估全檔約 **24.2 分鐘**；不能保證全程維持此速度。尚未啟動完整下載。
+- 唯讀檢查已安裝 Spandrel 0.4.2：SwinIR loader 宣告 minimum=16、multiple_of=start_unshuffle**2、supports_half=False、tiling=DISCOURAGED；具體值仍須載入檔案确认。descriptor 先 padding／裁回，極小輸入先有限 reflect 再 replicate，SwinIR 本體另處理 window multiple；現有 production upscale 未見需要預先修改的具體缺口。
+- 可執行的最小方案：一次下載僅此約 67.13 MB checkpoint，總下載上限 70 MB／30 分鐘、無自動重試，`.part` 完成 size／本機 SHA 才改名；約需 135 MB 額外磁碟包含輸出，無付費服務或依賴。以既有 512 真實圖走真正 CLI 至獨立目錄，另以相同 production 路徑量測 VRAM；合成 17×19 與 1×1 tensors 只驗尺寸／padding。每個推論程序上限 120 秒，預估推論與檢查數分鐘內，不跑模型 sweep。暫時切換自有 model.pth symlink，finally 恢復 Compact，保留兩顆原始 checkpoint／Compact 既有輸出。
+- 預定 acceptance：真實 512→2048 RGB PNG 開啟、原始 hash 不變；上述尺寸嚴格乘 scale、finite／無 padding 殘留；phase-03 指定 inference focused tests；共用 CLI／批次既有證據，無程式修改則不重跑 Compact。若都通過，以先前使用者指定且已驗證的 Compact 保持候選，不把海面觀察當畫質排名。
+- **Phase 03 維持 Blocked，但最小缺項更正為下載時間授權**：AGENTS「預估超過約十分鐘的工作」及 PLANS「停止並取得所需決策／授權」要求先說明具體成本。上述材料與驗證方案已準備完成，等待是否批准最多 30 分鐘的單檔下載。Phase 04 仍 Not started，沒有把唯讀準備／估計記為實際 SwinIR 推論通過。沒有修改 production／測試，故本步只執行文件差異檢查。

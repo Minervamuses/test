@@ -99,7 +99,7 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 - 預設及指定含空白／相對路徑的批次，各用兩個真實小裁切和中間一張故意損壞的圖片；GPU 均跑到底，Processed 2／Failed 1、退出碼 1 符合預期，成功 PNG 開啟正常。原始 hash、無關 output 保留，既有同名測試結果成功替換；兩種介面輸出 hash 相同。
 - 隱藏子程序 CUDA 後，以同一正式權重及真正 CLI 跑 32×28 真實裁切，CPU 成功產生 128×112 PNG，約 2.11 秒（含啟動）；沒有拿 mock 當 CPU 證據。
 - 原始素材座標、格式、hash、完整 console／命令與結果存於 `test-data/phase-02-cli-20260917/` 及 build-log。此目錄的壞圖與舊輸出僅供本次隔離驗收。
-- 本輪收尾完整軟體 suite 25／25 通過（`python -m unittest discover -s tests -v`，無 skipped）；真實推論不包含在此 suite。原計畫的 Phase 03 因缺 SwinIR checkpoint／下載授權而 Blocked，Phase 04 分塊尚未開始。
+- 本輪收尾完整軟體 suite 25／25 通過（`python -m unittest discover -s tests -v`，無 skipped）；真實推論不包含在此 suite。當時 Phase 03 因缺 SwinIR checkpoint／下載授權而 Blocked，Phase 04 分塊尚未開始。後續已選定官方 SwinIR-M real-world 4×、512×512 驗證；67.13 MB 權重測速估約 24 分鐘，現待超過十分鐘工作的時間授權。尚未取得完整權重或跑 SwinIR，詳見 build-log 最新紀錄。
 
 ```bash
 python -m pip check
