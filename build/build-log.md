@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|
 | 01 — 單張推論 | Complete | 2026-09-15 | 2026-09-17 | 真實 Compact GPU 512→2048 PNG／人工檢視／原始 hash／VRAM 通過；既有 13 tests 及負向 CLI 證據 | 無；4K 不屬本階段驗收 |
 | 02 — 資料夾 CLI | Complete | 2026-09-17 | 2026-09-17 | CLI 12＋I/O 7 tests；預設／args 真實 GPU 批次 2 成功 1 壞圖，極小真實 CPU 通過 | 無 |
-| 03 — 模型相容性 | Blocked | 2026-09-17 | — | 已選定官方 SwinIR-M 4×／512 真實裁切，來源與小量測速完成；未執行模型 | 67.13 MB 下載估約 24 分鐘，待超過十分鐘工作的具體時間授權 |
+| 03 — 模型相容性 | In progress | 2026-09-17 | — | 已選定官方 SwinIR-M 4×／512 真實裁切，來源與小量測速完成；未執行模型 | 時間授權已取得，執行指定下載與真實驗證 |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
 
 只使用 Not started、In progress、Blocked、Complete。Complete 必須有全部必要 acceptance／檢查證據。
@@ -343,3 +343,10 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 前一步 preflight 提交 `ebe91c2`；已提出最多 30 分鐘／70 MB、只下載指定 checkpoint 一次的時間授權問題，回答前不啟動完整下載。
 - 實際命令：WSL 專案根目錄 `.venv/bin/python -m unittest discover -s tests -p test_inference.py -v`；**6／6 PASS**，unittest 0.061 秒、程序含 imports 約 4.58 秒，exit 0、無 skipped。這是既有 toy descriptor／mock 的裝置與尺寸 correctness，加上真正壞 checkpoint loader 錯誤；不是 SwinIR 預訓練推論。沒有 production 修改或完整 suite 重跑。
 - 本輪逐項沿用前次 GOALS 核對：#1 兩種批次真實輸出、#3 GPU／極小 CPU、#4 I/O 與 Compact 真實尺寸、#6 原始／其他輸出保護、#7 错誤與摘要均有既有 PASS 證據；#2 仍缺實際 SwinIR；#5 分塊未開始；#8 現階段測試／README 可追溯，但整體驗收仍未完成。PLANS 要求每階段 Complete 尚未滿足，Phase 03 Blocked／04 Not started。沒有新增圖片或新推論結果，Compact 現有證據保持有效。
+
+
+### 2026-09-17T21:39:00+08:00 — Phase 03 下載與計劃內工作授權已確認
+
+- 使用者批准最多 30 分鐘／70 MB 單次指定權重下載，並明確授權計劃內工作一律執行、不再詢問。PLANS 已記錄最新授權；仍保留階段依賴、失敗次數、資料保護及原非目標。Phase 03 Blocked → In progress。
+- 新任務 gate：讀 root AGENTS，依序核對 GOALS／PLANS／build-log／phase-03 與實際 inference；main `03e1202`、git status 乾淨；WSL Linux shell／Git／Python 一致。GPU 12227 MiB total／10518 MiB free、driver 591.74；RAM 約 30 GiB available、磁碟約 842 GiB free。來源、大小、預定檢查與成本沿用上一節，沒有新材料矛盾；上輪 6／6 focused tests 有效，不無故重跑。
+- 下一步只下載已選定 SwinIR-M 原檔至 models/，本次上限 1800 秒；每個真實推論程序上限 120 秒。已完成來源及共用路徑唯讀準備，現在可執行，不再以先前缺授權狀態停止。
