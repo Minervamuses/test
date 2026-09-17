@@ -336,3 +336,10 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 可執行的最小方案：一次下載僅此約 67.13 MB checkpoint，總下載上限 70 MB／30 分鐘、無自動重試，`.part` 完成 size／本機 SHA 才改名；約需 135 MB 額外磁碟包含輸出，無付費服務或依賴。以既有 512 真實圖走真正 CLI 至獨立目錄，另以相同 production 路徑量測 VRAM；合成 17×19 與 1×1 tensors 只驗尺寸／padding。每個推論程序上限 120 秒，預估推論與檢查數分鐘內，不跑模型 sweep。暫時切換自有 model.pth symlink，finally 恢復 Compact，保留兩顆原始 checkpoint／Compact 既有輸出。
 - 預定 acceptance：真實 512→2048 RGB PNG 開啟、原始 hash 不變；上述尺寸嚴格乘 scale、finite／無 padding 殘留；phase-03 指定 inference focused tests；共用 CLI／批次既有證據，無程式修改則不重跑 Compact。若都通過，以先前使用者指定且已驗證的 Compact 保持候選，不把海面觀察當畫質排名。
 - **Phase 03 維持 Blocked，但最小缺項更正為下載時間授權**：AGENTS「預估超過約十分鐘的工作」及 PLANS「停止並取得所需決策／授權」要求先說明具體成本。上述材料與驗證方案已準備完成，等待是否批准最多 30 分鐘的單檔下載。Phase 04 仍 Not started，沒有把唯讀準備／估計記為實際 SwinIR 推論通過。沒有修改 production／測試，故本步只執行文件差異檢查。
+
+
+### 2026-09-17T21:28:28+08:00 — Phase 03 不依賴下載的 focused check
+
+- 前一步 preflight 提交 `ebe91c2`；已提出最多 30 分鐘／70 MB、只下載指定 checkpoint 一次的時間授權問題，回答前不啟動完整下載。
+- 實際命令：WSL 專案根目錄 `.venv/bin/python -m unittest discover -s tests -p test_inference.py -v`；**6／6 PASS**，unittest 0.061 秒、程序含 imports 約 4.58 秒，exit 0、無 skipped。這是既有 toy descriptor／mock 的裝置與尺寸 correctness，加上真正壞 checkpoint loader 錯誤；不是 SwinIR 預訓練推論。沒有 production 修改或完整 suite 重跑。
+- 本輪逐項沿用前次 GOALS 核對：#1 兩種批次真實輸出、#3 GPU／極小 CPU、#4 I/O 與 Compact 真實尺寸、#6 原始／其他輸出保護、#7 错誤與摘要均有既有 PASS 證據；#2 仍缺實際 SwinIR；#5 分塊未開始；#8 現階段測試／README 可追溯，但整體驗收仍未完成。PLANS 要求每階段 Complete 尚未滿足，Phase 03 Blocked／04 Not started。沒有新增圖片或新推論結果，Compact 現有證據保持有效。
