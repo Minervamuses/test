@@ -7,7 +7,7 @@
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻礙 |
 |---|---|---|---|---|---|
 | 01 — 單張推論 | Complete | 2026-09-15 | 2026-09-17 | 真實 Compact GPU 512→2048 PNG／人工檢視／原始 hash／VRAM 通過；既有 13 tests 及負向 CLI 證據 | 無；4K 不屬本階段驗收 |
-| 02 — 資料夾 CLI | Not started | — | — | — | 尚未進入實作 preflight |
+| 02 — 資料夾 CLI | In progress | 2026-09-17 | — | 前置 Phase 01 真實驗收 Complete；已讀本階段範圍／測試要求 | 尚待 CLI 實作及代表批次驗收 |
 | 03 — 模型相容性 | Not started | — | — | — | 尚未進入實作 preflight |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
 
@@ -269,3 +269,10 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - Acceptance 逐項：真實 PNG 開啟／內容尺寸／原始保留 **PASS**；Spandrel descriptor 共用路徑 **PASS**；既有 I/O／尺寸／載入失敗 focused evidence **PASS**；環境、來源／權重、命令／耗時／VRAM 可追溯 **PASS**。Phase 01 In progress → Complete。
 - 採用指定 checkpoint 作目前固定 `models/model.pth` 候選並寫入 README；此 512×512 case 的 VRAM 有餘裕，不能推定完整 4K 或最終 tiling 已驗收。整體 GOALS 尚未完成：#1 尚缺 args／批次，#2 尚缺 SwinIR，#3 真實 GPU 已補足、CPU 有既有極小合成執行，#4 真實尺寸／dtype 通過，#5 tiling 未實作，#6–7 尚缺批次完整行為，#8 README 已補實測、整體收尾仍待後續。
 - 依既有自主計畫，下一個符合依賴條件為 phase-02。每步 commit 沿用；未批准其他 checkpoint 或資料下載。
+
+### 2026-09-17T20:25:09+08:00 — Phase 02 唯讀 preflight
+
+- Phase 01 已於 `15b63fe` Complete；依最初「繼續下一個符合依賴條件的階段」與 PLANS 自主模式進行本階段。重讀 phase-02；其前置／context 狀態與 live code 一致，無使用者新修改。
+- 範圍：只擴充現有 __main__.py 的資料夾 args、第一層序列批次、逐圖失敗／計數與來源保護；必要時調整 I/O，不新增依賴、公開技術選項、模組或框架。先新增 tests/test_cli.py 觀察 Phase 01 缺少批次介面的預期失敗，再最小修改。
+- 代表驗收使用既有影片 frame 的兩個小裁切及一份故意損壞檔，放於 test-data/phase-02-cli-20260917/ 的隔離資料夾；預設／指定含空白路徑各跑一次，覆蓋只涉及本次建立的驗收 output。CPU 只用約 32×28 真實裁切，以子程序 CUDA_VISIBLE_DEVICES=-1 隱藏 GPU；不使用 mock 冒充 CPU。每個程序上限 120 秒，預估全部約 1 分鐘內，無下載／付費工作。
+- 預定檢查：focused test_cli、直接相關 image_io、--help；真實批次 Processed 2／Failed 1／非零退出、成功 PNG 開啟、原始／無關 output 保留，以及極小 CPU 4× PNG。既有 GPU／缺壞模型證據沿用 Phase 01。必要檢查失敗先處理；超出兩次聚焦修正／昂貴工作界線即停止，不進依賴階段。
