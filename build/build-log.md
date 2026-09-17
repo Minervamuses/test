@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|
 | 01 — 單張推論 | Complete | 2026-09-15 | 2026-09-17 | 真實 Compact GPU 512→2048 PNG／人工檢視／原始 hash／VRAM 通過；既有 13 tests 及負向 CLI 證據 | 無；4K 不屬本階段驗收 |
 | 02 — 資料夾 CLI | Complete | 2026-09-17 | 2026-09-17 | CLI 12＋I/O 7 tests；預設／args 真實 GPU 批次 2 成功 1 壞圖，極小真實 CPU 通過 | 無 |
-| 03 — 模型相容性 | In progress | 2026-09-17 | — | 已選定官方 SwinIR-M 4×／512 真實裁切，來源與小量測速完成；未執行模型 | 時間授權已取得，執行指定下載與真實驗證 |
+| 03 — 模型相容性 | Complete | 2026-09-17 | 2026-09-17 | 真實 SwinIR 512→2048、17×19／1×1、共用 CLI／FP32／GPU／圖片及 hash 通過 | 無；Compact 保持候選，SwinIR tiling metadata 交接 phase-04 |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
 
 只使用 Not started、In progress、Blocked、Complete。Complete 必須有全部必要 acceptance／檢查證據。
@@ -357,3 +357,17 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 前一步 `432af28` 記錄完整計劃授權。WSL 專案根目錄實際執行 `python3 -u test-data/phase-03-swinir-20260917/download.py`，一次 HTTP 200 下載 **67,129,861 bytes／166.952 秒**、exit 0。前段慢，後段提速；先前約 24 分鐘只是小量測速估計，實際未超過 30 分鐘上限，也未重試。只取得指定 SwinIR checkpoint，沒有其他資料或權重。
 - 本機 `models/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth`；SHA-256 **`b9afb61e65e04eb7f8aba5095d070bbe9af28df76acd0c9405aeb33b814bcfc6`**，下載時計算後又重新讀檔核對相同；大小符合官方 API，官方 digest=null，未聲稱官方 hash 比對。`.part` 完成後改名，完整 provenance 在同目錄 provenance.json／download.py。
 - 既有 Compact 原檔、model.pth 相對 symlink 保留；尚未模型 forward。一次性 validate_swinir.py 已準備、Python compile 語法檢查通過；採父程序 try/finally 管理模型切換，子程序各 timeout 120 秒，先真實 CLI 再獨立量測及兩個最小 tensor 尺寸案例。不把腳本準備記成驗收成功。
+
+
+### 2026-09-17T21:46:04+08:00 — Phase 03 真實 SwinIR 相容性 Complete
+
+- 前一步 `abb5c03` 保存官方權重來源與下載證據。真實驗證前審查一次性腳本，修正 symlink 切換／還原非原子、timeout console 未保存、還原確認前可能記 PASS 三項問題；production code／tests／依賴均未變。脚本由父層 try/finally、暫存相對 symlink＋os.replace 管理，僅還原仍指向本次模型的入口；子程序 timeout 保存可取得 console。這是驗證準備修正，未發生真實推論失敗。
+- 實際命令：WSL 專案根目錄 `.venv/bin/python -u test-data/phase-03-swinir-20260917/validate_swinir.py`，exit 0。先真正 CLI：`.venv/bin/python -m drone_sr --input /home/minervamuses/drone-image-analysis/test-data/phase-03-swinir-20260917/input --output /home/minervamuses/drone-image-analysis/test-data/phase-03-swinir-20260917/output`，exit 0、Device cuda:0／RTX 5070 Ti Laptop、Processed 1／Failed 0，含啟動 **11.641 秒**。
+- 模型身分由實際 descriptor 確認：SwinIR／model class SwinIR、SR／RGB 3→3／scale 4、11,715,559 parameters、minimum=16／multiple_of=1／square=False、tiling=DISCOURAGED、supports_half=False／supports_bfloat16=True；本次使用 cuda:0／float32／eval。詳見 descriptor.json。第三方 torch.meshgrid 發出未來需要 indexing 參數的 UserWarning，兩個程序都成功；沒有靜默抑制或為 warning 修改依賴。
+- 同一 production load_model/read_image/upscale 的独立量測子程序 `validate_swinir.py --measure` exit 0、含啟動 9.467 秒。無 warmup／sweep：同步 GPU 計時的上傳＋推論 **3.242450 秒**，load/read/infer 不含 imports 6.127637 秒；載入至 forward 結束 PyTorch peak allocated **4,643,337,216 bytes（4.324 GiB）**、reserved **7,140,802,560 bytes（6.650 GiB）**。不包含 CUDA context／其他程序或後續 finite／PNG 編碼，不當作整卡 VRAM 峰值。先前 4–6 GB 僅粗估，本節實測替代。
+- 輸入是 phase-01 同一真實 512×512 crop 的隔離副本，SHA `ad7d8815928ea78bb2243af8639541216e83a7444d78272d91451a2d7dd63faa`；輸出 `test-data/phase-03-swinir-20260917/output/whaledrone_seek10s_x1536_y768_512.png`，RGB PNG **2048×2048**、3,853,525 bytes，SHA **`11ba292b3382c55eca28e0edd6450277da512acbbd087a53702eb894db181f94`**。量測結果依 production clamp／round 得到的 uint8 與真正 CLI 每像素相同（max difference 0）。
+- 同一正式 SwinIR／GPU／FP32 的兩個合成 tensor，只驗尺寸：H×W **17×19 → 68×76**（0.898 秒，奇數／非 window8 倍數，但符合 descriptor minimum／multiple）；**1×1 → 4×4**（0.103 秒，真正低於 minimum，reflect／replicate 補邊後裁回）。兩者 finite／dtype／device 正確，沒有殘留 padding；不以此宣稱 SR 畫質。
+- 原始 crop、frame、Compact checkpoint／既有 PNG hash 前後相同；SwinIR hash 重核對一致；model.pth 已恢復 `realesr-general-x4v3.pth`。完整 argv、cwd、各 exit／elapsed、hash 為 validation.json，量測為 measurements.json，console 為 cli.txt／measure-console.txt；所有新圖可對應該目錄 input/output 與既有 crop 座標。
+- 人工開啟原圖與本次 SwinIR PNG：波紋／亮點相對位置、藍綠色、朝向正常，無空白或殘留邊框；細紋平滑，沒有可辨識鯨魚，不宣稱還原真實新增細節／畫質排名。
+- Acceptance：Compact 既有真實圖＋本次 SwinIR 同一路徑 **PASS**；不符尺寸要求／裁回 **PASS**；CLI 換模型成功且 production 未變，重用 phase-02 批次／錯誤及本階段 6／6 focused tests **PASS**；保持使用者先前指定、資源較低且已跑通的 Compact 作候選 **PASS**。Phase 03 In progress → Complete；phase-04 仍須驗兩模型最小 tiled 與候選大圖，未推定通過。
+- 新 metadata 對下游有實質影響：Spandrel 的 DISCOURAGED 表示可分塊但可能受上下文影響，不能當 SUPPORTED。已記 context 並補 phase-04：查原因、兩模型最小 direct/tile 視覺確認，Compact 作大圖候選；不增加 architecture 分支或全圖 SwinIR sweep。

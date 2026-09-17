@@ -18,7 +18,7 @@
 - 使用者提供至少一張真實大型圖及少量小圖；唯讀確認尺寸／mode、scale、當時 RAM／VRAM。
 - tile 約 512、overlap 約 32 只是需求起點，並非已驗證值。清楚定義有效核心區、擴展 halo、拼回座標，避免含義混用。
 - 先以有限小裁切估大圖成本；預計超過約十分鐘或資源不足時，依 PLANS.md 提前告知並取得所需同意。
-- descriptor 指示不適合 tiling 時先查原因，不靜默忽略或依模型名稱繞過。
+- descriptor 指示不適合 tiling 時先查原因，不靜默忽略或依模型名稱繞過。Phase-03 已實測 SwinIR-M 為 DISCOURAGED（可分塊但上下文可能影響結果），見 ../context/phase-03-context.md；兩模型各做最小 direct/tile 檢查，大圖以 Compact 候選驗收，不以小例宣稱 SwinIR 全尺寸無縫。
 
 ## 預期影響元件與授權
 

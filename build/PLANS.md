@@ -89,7 +89,7 @@
 | 03 | 換 SwinIR 後同一流程可用，選定預設候選 | 02 | [phase-03](phases/phase-03-model-compatibility.md) |
 | 04 | 自動 tile、邊界正確、真實驗收與 README | 03 | [phase-04](phases/phase-04-tiling-acceptance.md) |
 
-狀態僅由 build-log.md 保存。phase-01 就採 descriptor；phase-03 驗證既有通路。phase-03 候選通過 phase-04 才成為交付預設。
+狀態僅由 build-log.md 保存。phase-01 就採 descriptor；phase-03 驗證既有通路。phase-03 候選通過 phase-04 才成為交付預設。2026-09-17 SwinIR 實測 tiling=DISCOURAGED，phase-04 須依 context 查上下文限制並驗兩模型最小 tiled；大圖只用 Compact 候選，不把第二模型相容性擴張為全尺寸比較。
 
 ## 預定驗證命令的地位
 

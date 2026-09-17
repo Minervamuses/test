@@ -2,7 +2,7 @@
 
 本機、單一 Spandrel 推論流程。目前完成 **真實單張驗證與資料夾批次 CLI**：從 `input/` 或指定資料夾逐張讀取圖片，使用專案內的 `models/model.pth`，將同 stem 的 RGB PNG 寫入 `output/` 或指定資料夾，保留原圖。
 
-已採用官方 `realesr-general-x4v3.pth`，通過真實影片 512×512 裁切的 GPU 推論，以及小圖批次／極小 CPU 驗證。SwinIR 相容性及大圖分塊仍待後續階段；目前請使用小圖，此驗證不代表完整 4K 或影片流程已完成。
+已採用官方 `realesr-general-x4v3.pth`，通過真實影片 512×512 裁切的 GPU 推論，以及小圖批次／極小 CPU 驗證。SwinIR-M 同一 512×512 真實裁切也已通過；大圖分塊仍待下一階段，目前請使用小圖，此驗證不代表完整 4K 或影片流程已完成。
 
 ## 採用的環境與版本
 
@@ -76,6 +76,15 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 - 實際 descriptor：Compact／SRVGGNetCompact、RGB 3→3、原生 4×、1,213,296 個參數；本程式採 float32。只使用此單一 checkpoint，沒有混合另一個降噪權重。
 - 官方 repository [授權文件](https://github.com/xinntao/Real-ESRGAN/blob/v0.2.5.0/LICENSE) 為 BSD-3-Clause。權重與資料不納入 Git；另一台機器需另外準備檔案。
 
+### 開發者已驗證的第二 checkpoint
+
+- [SwinIR-M real-world 4× 官方權重](https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth)：`003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth`，67,129,861 bytes；GitHub release v0.0／asset 44142419，2021-09-06。
+- 本機 SHA-256：`b9afb61e65e04eb7f8aba5095d070bbe9af28df76acd0c9405aeb33b814bcfc6`；官方 API digest 未提供。[官方 repository LICENSE](https://github.com/JingyunLiang/SwinIR/blob/main/LICENSE) 為 Apache-2.0。
+- Spandrel 0.4.2 實測辨識為 SwinIR，RGB／4×／11,715,559 parameters；minimum=16、multiple=1。採 FP32；descriptor 不支援 FP16，tiling 為 DISCOURAGED（可能產生上下文差異）。
+- 驗證時僅暫時將 `models/model.pth` 指向此檔，完成後恢復 Compact；沒有加入模型 CLI 選項。兩顆權重都保留，預設候選仍為先前使用者選定、已跑通且資源需求較低的 Compact，不宣稱畫質最優。
+- 真實 512×512 → 2048×2048 RGB PNG：CLI 約 **11.64 秒**；獨立一次上傳＋GPU 推論 **3.24 秒**，PyTorch 峰值 allocated **4.32 GiB**／reserved **6.65 GiB**（截至 forward，排除 CUDA context、其他程序和 PNG 階段）。此案例在本機 12 GB 筆電 GPU 通過，不等於全尺寸 SwinIR 驗證。
+- 同一權重另通過 17×19 → 68×76、1×1 → 4×4 的尺寸檢查。已開啟真實 PNG，內容、色彩和尺寸正常；細紋平滑，無高解析度真值，不做畫質排名。來源／輸出／命令／量測位於 `test-data/phase-03-swinir-20260917/`，結果為其 `output/whaledrone_seek10s_x1536_y768_512.png`。
+
 ## 驗證紀錄
 
 2026-09-15，在上述 WSL 環境已確認：
@@ -99,7 +108,7 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 - 預設及指定含空白／相對路徑的批次，各用兩個真實小裁切和中間一張故意損壞的圖片；GPU 均跑到底，Processed 2／Failed 1、退出碼 1 符合預期，成功 PNG 開啟正常。原始 hash、無關 output 保留，既有同名測試結果成功替換；兩種介面輸出 hash 相同。
 - 隱藏子程序 CUDA 後，以同一正式權重及真正 CLI 跑 32×28 真實裁切，CPU 成功產生 128×112 PNG，約 2.11 秒（含啟動）；沒有拿 mock 當 CPU 證據。
 - 原始素材座標、格式、hash、完整 console／命令與結果存於 `test-data/phase-02-cli-20260917/` 及 build-log。此目錄的壞圖與舊輸出僅供本次隔離驗收。
-- 本輪收尾完整軟體 suite 25／25 通過（`python -m unittest discover -s tests -v`，無 skipped）；真實推論不包含在此 suite。當時 Phase 03 因缺 SwinIR checkpoint／下載授權而 Blocked，Phase 04 分塊尚未開始。後續已選定官方 SwinIR-M real-world 4×、512×512 驗證；67.13 MB 權重測速估約 24 分鐘，使用者已批准此下載時間及計劃內工作，正在取得權重。尚未跑 SwinIR，詳見 build-log 最新紀錄。
+- 本輪收尾完整軟體 suite 25／25 通過（`python -m unittest discover -s tests -v`，無 skipped）；真實推論不包含在此 suite。當時 Phase 03 因缺 SwinIR checkpoint／下載授權而 Blocked，Phase 04 分塊尚未開始。後續已選定官方 SwinIR-M real-world 4×、512×512 驗證；67.13 MB 權重測速估約 24 分鐘，使用者已批准計劃內工作；下載與 SwinIR 驗證現已完成，詳見下節及 build-log 最新紀錄。
 
 ```bash
 python -m pip check
