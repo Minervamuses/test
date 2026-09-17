@@ -242,3 +242,18 @@ git diff --check
 - 指定來源：`https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth`。官方 repository [LICENSE](https://github.com/xinntao/Real-ESRGAN/blob/v0.2.5.0/LICENSE) 為 BSD-3-Clause；release tag 早於此 asset 加入時間，不把 tag 當作 checkpoint 建立日期。後續以實際 descriptor 確認 Compact／RGB／4×。
 - 最小預定工作：只下載 4.89 MB 指定 checkpoint（下載上限 10 MB／120 秒）、從既有 MP4 第 10 秒抽一張 RGB PNG，再取有內容的 512×512 原尺寸裁切；單張 GPU 驗證採現有 float32 程式，每個推論程序上限 120 秒，預估全部數分鐘，無付費 API／新增套件。先視覺選裁切，保留來源與 provenance；不跑整段影片、模型 sweep、4K 全圖或提早實作 tiling。
 - 預定 acceptance：真實 CLI 成功 PNG／scale 尺寸、來源 hash 不變、開啟原圖及結果檢查色彩內容；記錄 descriptor／device／耗時與峰值 PyTorch VRAM。既有程式未變，重用 13 項 focused tests 及真正缺／壞模型 CLI 負向證據，不重跑相同軟體 suite。任何必要失敗先處理，尚無真實推論 PASS。
+
+### 2026-09-17T20:18:59+08:00 — Phase 01 權重與真實小圖就緒
+
+- 前一步提交 `088bcb0`。使用 WSL `timeout 240 python3 -` 執行 stdlib 單檔下載及抽圖準備：指定權重一次下載 110.654 秒、4,885,111 bytes，大小符合官方 asset metadata；寫 `.pth.part` 完成後才改名。GitHub 連線慢但在 120 秒下載界線內，沒有重試或下載其他 checkpoint。
+- 權重 `models/realesr-general-x4v3.pth`；SHA-256 `8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292`（本機追溯值，官方 digest 未提供）。新建相對 symlink `models/model.pth → realesr-general-x4v3.pth`，沿用原本固定模型入口；未覆寫既有資產。provenance 保存於 `test-data/phase-01-compact-20260917/provenance.json`。
+- 實際抽圖命令（cwd 專案根目錄；記錄 JSON 保存完整絕對路徑）：
+
+~~~bash
+ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_20260114193309_0004_V.MP4 -map 0:v:0 -frames:v 1 -pix_fmt rgb24 -update 1 test-data/phase-01-compact-20260917/frame_seek10s.png
+~~~
+
+- ffmpeg exit 0；有 `stream 0, timescale not set` 容器警告，RGB PNG 實際可解碼且尺寸為 3840×2160。`-ss 10` 表示請求 seek 時間，未另聲稱精確源 frame index。抽圖前影片 hash 與下載紀錄一致；frame SHA-256 `0ca08a179e42c9917d1bab23ebc354d1a8791833b27e81a1dc2a58b662ad9f31`。
+- 已開啟 full frame，再以 Pillow `Image.crop((1536,768,2048,1280))` 取得原尺寸 512×512 海面波紋／反光裁切，保存 `input/whaledrone_seek10s_x1536_y768_512.png`；SHA-256 `ad7d8815928ea78bb2243af8639541216e83a7444d78272d91451a2d7dd63faa`。已開啟裁切確認內容／RGB 色彩；此樣本没有可辨識鯨魚，不用來驗證動物細節。
+- `.venv/bin/python -` 呼叫現有 `load_model()`：實際 descriptor architecture `Compact`／model class `SRVGGNetCompact`、scale 4、channels 3→3、1,213,296 parameters、`cuda:0`、float32、eval；size requirements minimum=0／multiple_of=1／square=False。PyTorch 2.11.0+cu128／CUDA 12.8，capability (12,0)，wheel 包含 sm_120。詳細值保存 `test-data/phase-01-compact-20260917/descriptor-and-crop.json`。
+- 模型已載入但尚未 forward；本步只完成材料與 descriptor 核對。input／output／models／test-data 仍由既有 `.gitignore` 排除，不提交二進位檔。
