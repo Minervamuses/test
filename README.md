@@ -1,8 +1,8 @@
 # Drone Image Super-Resolution
 
-本機、單一 Spandrel 推論流程。目前完成 **真實單張驗證與資料夾批次 CLI**：從 `input/` 或指定資料夾逐張讀取圖片，使用專案內的 `models/model.pth`，將同 stem 的 RGB PNG 寫入 `output/` 或指定資料夾，保留原圖。
+本機、單一 Spandrel 推論流程。已完成 build/ 四階段 V1：**資料夾批次、自動 GPU／CPU、小圖直接推論與大圖自動分塊**。從 `input/` 或指定資料夾逐張讀取圖片，使用專案內的 `models/model.pth`，將同 stem 的 RGB PNG 寫入 `output/` 或指定資料夾，保留原圖。
 
-已採用官方 `realesr-general-x4v3.pth`，通過真實影片 512×512 裁切的 GPU 推論，以及小圖批次／極小 CPU 驗證。SwinIR-M 同一 512×512 真實裁切也已通過；大圖分塊仍待下一階段，目前請使用小圖，此驗證不代表完整 4K 或影片流程已完成。
+交付預設為官方 `realesr-general-x4v3.pth`（Compact）：已將一張真實 3840×2160 海面畫面處理為 15360×8640 PNG，並完成批次／極小 CPU 驗證。SwinIR-M 通過 512×512 真實裁切與最小分塊相容性；完整影片處理、SwinIR 大圖與畫質排名不在本次驗證範圍。
 
 ## 採用的環境與版本
 
@@ -46,7 +46,7 @@ python -m pip install --no-deps --no-build-isolation -e .
 ## 準備與執行
 
 1. 將下方指定的 Compact RGB SR `.pth` 權重準備為專案的 `models/model.pth`。程式不會下載模型。本機已保存原檔名，並以相對 symlink `models/model.pth → realesr-general-x4v3.pth` 使用它。
-2. 將小圖片放在 `input/` 或指定資料夾第一層，接受 `.jpg`、`.jpeg`、`.png`、`.tif`、`.tiff`（大小寫皆可），不遞迴掃描。
+2. 將圖片放在 `input/` 或指定資料夾第一層，接受 `.jpg`、`.jpeg`、`.png`、`.tif`、`.tiff`（大小寫皆可），不遞迴掃描。
 3. 在專案根目錄、啟用環境後執行：
 
 ```bash
@@ -63,11 +63,18 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 
 例如 `input/DJI_001.JPG` 對應 `output/DJI_001.png`。輸出不存在會建立；成功 PNG 完整寫入後才替換同名舊結果。來源與其 symlink／hard link 不可被當作輸出覆寫。預設資料夾相對於目前工作目錄，模型仍固定於原始專案內。
 
-啟動時自動選擇可用 CUDA，否則使用 CPU，並顯示 `Device`；CUDA 執行失敗會報錯，不會暗中改成 CPU 重跑大圖。尚無分塊，請不要直接交付大圖或整個資料集。多頁 TIFF、高位深與浮點圖片會明確拒絕；普通圖片轉成 RGB，不保存 alpha、GIS 或其他 metadata。
+啟動時自動選擇可用 CUDA，否則使用 CPU，並顯示 `Device`；CUDA 執行失敗會報錯，不會暗中改成 CPU 重跑大圖。大圖會自動分塊，記憶體與已驗證尺寸見下節；不會自動掃描影片或整個資料集。多頁 TIFF、高位深與浮點圖片會明確拒絕；普通圖片轉成 RGB，不保存 alpha、GIS 或其他 metadata。
 
 缺輸入、輸出路徑是檔案、相同輸入／輸出目錄、缺模型或模型載入失敗會報錯並停止；空輸入顯示 `No supported images found in input/`（指定路徑則顯示該路徑）。檔名穩定排序、逐張處理，模型只載入一次。
 
 壞圖、推論或儲存失敗會列出檔名及原因，繼續下一張。多張輸入映射同名 PNG 時，衝突項全部記失敗；輸出指向任何輸入的 symlink／hardlink 也拒絕。成功寫出的數量為 `Processed`，其餘為 `Failed`；全成功或無支援圖片時退出碼 0，設定錯誤或任一圖片失敗為 1。
+
+## 自動分塊與資源
+
+- 寬、高都不超過 **512** 時整張推論；任一邊超過 512 就分塊，無需額外參數。
+- 每塊有效核心最多 **512×512**，四側各帶 **32 像素上下文**，模型最大接收 576×576；圖片外緣依實際範圍裁切。按模型倍率裁掉上下文，只把核心寫回一次，descriptor 自動處理最低尺寸／補邊／裁回。
+- 完整輸入與大圖拼接結果留在 CPU RAM，GPU 一次只處理當前塊。4K 圖做 4× 時，完整 RGB float32 結果本體約 **1.48 GiB**，編碼另需副本；本機代表批次程序峰值 RSS 約 **5.44 GiB**。分塊不能消除完整輸出的 RAM 需求，請先用少量圖片確認其他尺寸。
+- SwinIR descriptor 的 `DISCOURAGED` 表示可分塊但上下文可能改變結果。本次僅驗證 192×176、內部核心 128 的小例；未驗证 SwinIR 的 512 核心大圖或所有場景接縫。最終大圖預設採已驗證的 Compact。
 
 ## 採用的權重
 
@@ -81,7 +88,7 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 - [SwinIR-M real-world 4× 官方權重](https://github.com/JingyunLiang/SwinIR/releases/download/v0.0/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth)：`003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.pth`，67,129,861 bytes；GitHub release v0.0／asset 44142419，2021-09-06。
 - 本機 SHA-256：`b9afb61e65e04eb7f8aba5095d070bbe9af28df76acd0c9405aeb33b814bcfc6`；官方 API digest 未提供。[官方 repository LICENSE](https://github.com/JingyunLiang/SwinIR/blob/main/LICENSE) 為 Apache-2.0。
 - Spandrel 0.4.2 實測辨識為 SwinIR，RGB／4×／11,715,559 parameters；minimum=16、multiple=1。採 FP32；descriptor 不支援 FP16，tiling 為 DISCOURAGED（可能產生上下文差異）。
-- 驗證時僅暫時將 `models/model.pth` 指向此檔，完成後恢復 Compact；沒有加入模型 CLI 選項。兩顆權重都保留，預設候選仍為先前使用者選定、已跑通且資源需求較低的 Compact，不宣稱畫質最優。
+- 驗證時僅暫時將 `models/model.pth` 指向此檔，完成後恢復 Compact；沒有加入模型 CLI 選項。兩顆權重都保留，交付預設為先前使用者選定、已通過 4K 大圖且資源需求較低的 Compact，不宣稱畫質最優。
 - 真實 512×512 → 2048×2048 RGB PNG：CLI 約 **11.64 秒**；獨立一次上傳＋GPU 推論 **3.24 秒**，PyTorch 峰值 allocated **4.32 GiB**／reserved **6.65 GiB**（截至 forward，排除 CUDA context、其他程序和 PNG 階段）。此案例在本機 12 GB 筆電 GPU 通過，不等於全尺寸 SwinIR 驗證。
 - 同一權重另通過 17×19 → 68×76、1×1 → 4×4 的尺寸檢查。已開啟真實 PNG，內容、色彩和尺寸正常；細紋平滑，無高解析度真值，不做畫質排名。來源／輸出／命令／量測位於 `test-data/phase-03-swinir-20260917/`，結果為其 `output/whaledrone_seek10s_x1536_y768_512.png`。
 
@@ -93,7 +100,7 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 - 下列 focused checks **13／13 通過**：I/O 7 項，descriptor／模型載入 6 項。
 - 使用**未訓練的極小 Compact 模型**與合成 5×7 RGB 圖，實際跑 `python -m drone_sr`：CPU 與 CUDA 各成功寫出 10×14 PNG，原圖 SHA-256 不變。CPU 子程序透過 `CUDA_VISIBLE_DEVICES=''` 隱藏 GPU，實際執行 CPU 分支；GPU 子程序自動選 `cuda:0`，wheel 包含 `sm_120`。各命令約 2.03／2.48 秒，僅是這個極小案例的耗時。
 - 缺模型、不可載入模型、壞圖的實際 CLI 錯誤／計數符合預期；既有成功 PNG 在模型錯誤後保持不變。`--help`、空輸入與缺輸入檢查通過。
-- 當時尚未驗證真實圖片與預訓練 Compact checkpoint；此缺項已於下列 2026-09-17 單張驗證補足。SwinIR、大圖／分塊、資料夾 args／批次仍未驗證；未重跑一次全新環境建置。
+- 當時尚未驗證真實圖片與預訓練 Compact checkpoint；此缺項已於下列 2026-09-17 單張驗證補足。當時 SwinIR、大圖／分塊、資料夾 args／批次尚未驗證，後续已補足下列必要實例；未重跑一次全新環境建置。
 
 2026-09-17，使用上述正式權重與已下載的 WhaleDrone 影片：
 
@@ -110,11 +117,25 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 - 原始素材座標、格式、hash、完整 console／命令與結果存於 `test-data/phase-02-cli-20260917/` 及 build-log。此目錄的壞圖與舊輸出僅供本次隔離驗收。
 - 本輪收尾完整軟體 suite 25／25 通過（`python -m unittest discover -s tests -v`，無 skipped）；真實推論不包含在此 suite。當時 Phase 03 因缺 SwinIR checkpoint／下載授權而 Blocked，Phase 04 分塊尚未開始。後續已選定官方 SwinIR-M real-world 4×、512×512 驗證；67.13 MB 權重測速估約 24 分鐘，使用者已批准計劃內工作；下載與 SwinIR 驗證現已完成，詳見下節及 build-log 最新紀錄。
 
+### V1 最終驗收（2026-09-17）
+
+- 兩模型的真實 direct／tiled 小例均成功：Compact 640×576 → 2560×2304，走正式 512 核心自動分塊；SwinIR 192×176 → 768×704，使用內部強制 128 核心。完整圖與接縫交會裁切已檢視，這些海面樣本未見明顯拼接線；不要求兩條路徑每像素相同。
+- Compact 真正 CLI 同批次處理完整 4K 圖、故意壞圖、32×28 真實小圖：**Processed 2／Failed 1／退出碼 1** 符合預期，壞圖後仍繼續。整批含啟動／推論／PNG 約 **37.96 秒**，不是單獨 GPU forward 的時間。
+- 完整輸出為 **15360×8640 RGB PNG、117,800,469 bytes**，SHA-256 `bce5bfc0b9b347f06982e13f56c49ee6cc43ca910f1bf0c558887e4d613d7822`。原圖及無關輸出 hash 保留，驗收目錄的同名舊結果只在成功後替換。
+- 完整 PNG 已解碼；影像檢視工具無法傳輸約 118 MB 原檔，因此人工檢查使用其全圖縮覽、原尺寸接縫及最右／最下／右下裁切。未發現明顯拼縫、空白條、重影或裁切缺失。Pillow 對此 1.33 億像素結果會發出尺寸警告，但本次解碼成功；未停用圖片保護。
+- 最終完整 correctness suite **29／29 通過、無 skipped**；`--help` 仍只有資料夾參數。預設／指定資料夾與極小 CPU 的既有真實證據沿用，未重跑不受影響的案例。
+
+本機結果：[全圖預覽](<test-data/phase-04-tiling-20260917/full batch/full-preview.png>)、[完整 PNG（約118 MB）](<test-data/phase-04-tiling-20260917/full batch/output/a_full.png>)。來源、完整命令、尺寸、雜湊、裁切與結果為 `test-data/phase-04-tiling-20260917/` 下的 JSON／console，階段紀錄為 [build/build-log.md](build/build-log.md)。圖片／權重不納入 Git。
+
+驗收資料只來自使用者指定的單一 [WhaleDrone](https://huggingface.co/datasets/LucieLprt-Dvldr/WhaleDrone) MP4（資料集標示 CC-BY-NC-4.0），沒有下載 SRT 或其他影片。結果是海面場景，沒有鯨魚／道路／屋頂細節或配對高解析度真值驗證。V1 不含整段影片轉換、Docker、PSNR／SSIM、模型排名；未重新建立第二套乾淨環境驗證安裝。
+
 ```bash
 python -m pip check
 python -m unittest discover -s tests -p 'test_image_io.py' -v
 python -m unittest discover -s tests -p 'test_inference.py' -v
 python -m unittest discover -s tests -p 'test_cli.py' -v
+python -m unittest discover -s tests -p 'test_tiling.py' -v
+python -m unittest discover -s tests -v
 ```
 
 測試中的合成像素、未訓練小模型與 mock 用來驗證程式契約，**不證明真實 SR 品質或預訓練 checkpoint 相容性**。執行狀態與完整觀察證據以 [build/build-log.md](build/build-log.md) 為準；所有階段的完成條件見 [build/GOALS.md](build/GOALS.md)。

@@ -9,7 +9,7 @@
 | 01 — 單張推論 | Complete | 2026-09-15 | 2026-09-17 | 真實 Compact GPU 512→2048 PNG／人工檢視／原始 hash／VRAM 通過；既有 13 tests 及負向 CLI 證據 | 無；4K 不屬本階段驗收 |
 | 02 — 資料夾 CLI | Complete | 2026-09-17 | 2026-09-17 | CLI 12＋I/O 7 tests；預設／args 真實 GPU 批次 2 成功 1 壞圖，極小真實 CPU 通過 | 無 |
 | 03 — 模型相容性 | Complete | 2026-09-17 | 2026-09-17 | 真實 SwinIR 512→2048、17×19／1×1、共用 CLI／FP32／GPU／圖片及 hash 通過 | 無；Compact 保持候選，SwinIR tiling metadata 交接 phase-04 |
-| 04 — 分塊與驗收 | In progress | 2026-09-17 | — | preflight 完成；先驗 core／halo 座標再最小實作與真實圖片 | 尚待所有 tiling／大圖／整體 acceptance |
+| 04 — 分塊與驗收 | Complete | 2026-09-17 | 2026-09-17 | 兩模型真實 tile；Compact完整4K→15360×8640／視覺／hash／批次；29 tests與README | 無必要缺項；SwinIR大圖／全影片／第二環境未驗，詳見限制 |
 
 只使用 Not started、In progress、Blocked、Complete。Complete 必須有全部必要 acceptance／檢查證據。
 
@@ -420,3 +420,24 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - Pillow讀此132,710,400像素PNG時出現DecompressionBombWarning（預設警告門檻89,478,485），但完整解碼成功；未關閉圖片尺寸保護或修改production以隱藏warning。本次大圖驗收與資源範圍有效，不承諾任意更大圖片。
 - 收尾唯一完整suite：`.venv/bin/python -m unittest discover -s tests -v` **29／29 PASS、0.104秒、無skipped**；同次 `.venv/bin/python -m drone_sr --help` 僅有input/output/help、exit0；`git diff --check` PASS，整體程序約2.53秒。真實推論獨立於suite。
 - 本階段所有必要實際結果已取得，接著只更新README、完成標準與最終完整性核對；不再跑模型／新增參數／擴大工作。
+
+
+### 2026-09-17T22:01:56+08:00 — Phase 04 Complete／V1 整體完成核對
+
+- 上一步 `d2acc59` 已提交完整4K／視覺／29tests證據。本步只改 README 與階段文件紀錄，沒有再改 production／測試或重跑模型。README 更新交付預設、core512／halo32／CPU拼接、已驗證權重與VRAM／RAM／時間、完整輸出及明確限制；真正 code review 記於 build/code_review/phase-04-review.md，沒有新增常駐框架或不必要模組。
+- Phase 04 acceptance：所有表列尺寸／邊界／兩倍率與padding **PASS**；兩模型最小 tiled＋候選完整大圖 **PASS**；尺寸嚴格4×及全圖縮覽／原尺寸接縫和外緣視覺 **PASS**；小圖direct、大圖auto tile、CLI資料夾介面 **PASS**；GOALS逐條證據與README **PASS**。Compact 通過大圖後成為正式 `models/model.pth` 預設；兩顆來源權重與既有有效輸出均保留。Phase 04 In progress → Complete。
+
+| GOALS 成功條件 | 最終觀察與證據 |
+|---|---|
+| 1 預設／指定資料夾、真實PNG／摘要 | PASS：phase-02兩種真正批次各2成功1故意壞圖；phase-04指定含空白路徑的完整4K＋壞圖＋小圖同樣對帳。既有預設介面未變，無需再重跑 |
+| 2 Compact＋SwinIR、單一共用流程與預設 | PASS：phase-01正式Compact512；phase-03正式SwinIR512；phase-04兩模型真正tile，均經Spandrel descriptor／同一_direct路徑，無架構分支。Compact大圖通過並保持唯一入口 |
+| 3 自動GPU／CPU、明示裝置 | PASS：上述真實CUDA執行；phase-02隱藏CUDA的32×28正式權重CPU CLI已驗；此分支未改，29tests回歸通過 |
+| 4 RGB／float／BCHW／device／嚴格倍率尺寸 | PASS：I/O及descriptor focused/full tests；兩模型真實512、17×19／1×1尺寸，以及full15360×8640。模型和當前tile同dtype/device，完整拼接回CPU符合資源設計 |
+| 5 小圖direct、大圖overlap tile、邊界與接縫 | PASS：4種尺寸×2倍率oracle、metadata padding、兩模型小例；Compact原尺寸4K auto tile、完整decode及5處接縫／右／下／右下原尺寸裁切人工檢查。檢視工具IPC限制以全圖縮覽＋實際像素局部補足，沒有縮小推論輸入 |
+| 6 output建立、來源／其他結果保留、成功才覆蓋 | PASS：phase-02已測新目錄／覆蓋／别名／儲存失敗；phase-04完整大圖成功替換驗收舊檔，原frame／所有input／無關output／既有phase-01 PNG hash不變 |
+| 7 各錯誤／空輸入／壞圖繼續與計數 | PASS：phase-01真正缺／壞模型／空／缺input；phase-02及最終tests覆蓋設定與別名；phase-04坏圖後小圖成功，Processed2＋Failed1=3、exit1預期，壞圖無output |
+| 8 correctness tests／README有實際證據 | PASS：最終29／29、無skipped；所有真實推論另記本機模型／來源／hash／命令／尺寸／耗時／視覺，不把mock當SR。README列精確安裝版本、權重及可操作介面 |
+
+- **PLANS整體完成標準達成：四階段均Complete**、8項GOALS具體核對完成、最小代表批次／兩checkpoint／大圖均有真正輸出、完整軟體suite收尾一次、README與限制已更新。達到本計劃V1後停止，未擴展優化／研究或下一階段。
+- 限制：只驗指定影片的海面frame／小裁切；無鯨魚／道路／屋頂細節、高解析度真值或品質排名。SwinIR只驗512 direct及192×176／core128的分塊小例，未驗其完整大圖；全影片、Docker、PSNR／SSIM為GOALS非目標。未在另一套乾淨環境重新安裝。完整大PNG的模型與解碼已通過，但直接影像tool因IPC大小失敗，人工檢查方法及Pillow尺寸警告如上一節；不隱藏限制。
+- 收尾完整性：`sha256sum AGENTS.md test-data/DJI_20260114193309_0004_V.MP4`與原始hash相同（AGENTS `7929b09c…629`、MP4 `8dddd141…fda`）；`git check-ignore`确认環境／模型／test-data排除；文件 `git diff --check` 通過。沒有下載任何其他dataset檔案、改AGENTS、push／切分支／worktree或環境更動。已開啟本機full-preview.png於Codex面板（工具回覆queued），不宣稱面板已完成顯示。
