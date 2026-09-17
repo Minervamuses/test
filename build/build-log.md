@@ -382,3 +382,9 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 真實最小驗收：Compact 用可 direct 的約 640×576 frame crop，比對同一圖 direct／512 core auto tile；SwinIR 用約 192×176 crop、core128／halo32 作兩模型共用分塊與同位置視覺檢查。SwinIR DISCOURAGED 的原因與限制已查並記 context，不宣稱其大型圖無縫。通過後 Compact 對既有完整 4K frame 真正 CLI 自動分塊，開啟完整 PNG 和接縫／右下角局部，核對輸入及其他输出 hash。
 - 已測 Compact 512 forward 約 0.22 秒，full frame 約 8×5=40 tiles，加大 tile 與 PNG 編碼預估數十秒至數分鐘；小例程序限 180 秒、大圖 CLI 限 300 秒，無 sweep／付費／下載。必要檢查失敗先處理，兩次聚焦修正或一次昂貴嘗試失敗按既有停止條件，不進行無界實驗。
 - 通過後重用既有預設／args／壞圖／覆蓋／CPU 真實證據，針對變更路徑做最小整合，收尾完整既有 suite 一次。現在只完成 preflight，尚未有 tiling PASS。
+
+
+### 2026-09-17T21:48:47+08:00 — Phase 04 最小失敗座標測試
+
+- 前一步 `4d1c32c` 提交 preflight。新增 tests/test_tiling.py，4 個 methods，以已知 RGB 座標 ramp 及 repeat_pixels oracle 驗 core8／halo2、scale2／3、四種尺寸／6 個 halo 範圍、真正 toy descriptor minimum4／multiple4 補邊裁回，以及錯誤 shape／第二塊失敗傳遞。沒有新測試框架或真實模型計算。
+- 子代理實際 WSL 命令 `.venv/bin/python -m unittest discover -s tests -p test_tiling.py -v`：exit 1、ModuleNotFoundError: drone_sr.tiling；unittest 0.000 秒、程序約 1.55 秒。父代理讀取檔案確認測試範圍；這是尚無分塊實作的預期失敗，不記 PASS。Production 尚未修改。
