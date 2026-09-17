@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|
 | 01 — 單張推論 | Complete | 2026-09-15 | 2026-09-17 | 真實 Compact GPU 512→2048 PNG／人工檢視／原始 hash／VRAM 通過；既有 13 tests 及負向 CLI 證據 | 無；4K 不屬本階段驗收 |
 | 02 — 資料夾 CLI | Complete | 2026-09-17 | 2026-09-17 | CLI 12＋I/O 7 tests；預設／args 真實 GPU 批次 2 成功 1 壞圖，極小真實 CPU 通過 | 無 |
-| 03 — 模型相容性 | Not started | — | — | — | 尚未進入實作 preflight |
+| 03 — 模型相容性 | Blocked | 2026-09-17 | — | 已讀 phase-03 並確認 Spandrel 內建 SwinIR loader；未執行第二模型 | 缺指定 SwinIR 本機 checkpoint／來源或下載授權 |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
 
 只使用 Not started、In progress、Blocked、Complete。Complete 必須有全部必要 acceptance／檢查證據。
@@ -302,3 +302,23 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 每張圖的來源 frame、crop box、格式、input SHA 存於該 evidence 目錄 `fixtures.json`；輸出絕對路徑／SHA／尺寸／CLI argv／cwd／env／退出碼／耗時存於 `validation.json`，console 為 `default-cli.txt`、`custom-cli.txt`、`cpu-cli.txt`；一次性 script 為 `validate_cli.py`。沒有全套重跑或額外效能實驗。
 - Acceptance：兩種介面與 help **PASS**；真實 2 成功 1 失敗跑到底 **PASS**；輸入／模型／空目錄／壞圖既有與新增 checks **PASS**；原始／無關輸出／衝突／儲存失敗保護 **PASS**；真實 GPU 與極小真實 CPU 自動分支 **PASS**。Phase 02 In progress → Complete；README 同步已驗證介面與限制。
 - 下一個符合依賴條件為 phase-03，尚未宣稱第二個 checkpoint 或 4K／tiling 通過。
+
+### 2026-09-17T20:34:47+08:00 — Phase 03 唯讀準備與本輪整體核對
+
+- Phase 02 由 `26bce17` 完成。依順序讀 phase-03；前置已滿足，models/ 目前只有 `.gitkeep`、選定 Compact 原檔與 model.pth 相對 symlink，没有 SwinIR。既有授權只涵蓋這個 Compact 下載，不視為第二 checkpoint 下載批准。
+- 唯讀檢查已安裝 Spandrel 0.4.2 的 `architectures/SwinIR/__init__.py`：存在 SwinIRArch 與 ImageModelDescriptor 回傳路徑，scale／channels／size requirements 由 state_dict 推導；這只是實作準備，沒有 checkpoint 可供實際 descriptor、奇數尺寸或真實 PNG 驗證。沒有下載第二模型、改 model.pth、跑模型 sweep 或合成資料冒充相容性驗收。
+- Phase 03 Not started → **Blocked**。最小缺項：一個來源／使用條件可追溯的 SwinIR RGB SR checkpoint 本機路徑，或對具體檔案的下載授權。取得前不標 Complete、不開始依賴它的 phase-04；目前固定使用已選定並驗證過的 Compact。沒有要求新增套件／環境。
+- 本輪收尾依 PLANS 執行一次便宜完整軟體 suite：WSL 專案根目錄 `.venv/bin/python -m unittest discover -s tests -v`，**25／25 PASS、0.155 秒（unittest 計時；程序含 imports 約 4.11 秒）、exit 0、無 skipped**。此 suite 包含 mock correctness tests，真實 GPU／CPU 證據仍以上兩階段獨立記錄為準。
+
+| GOALS 成功條件 | 本輪核對／實際限制 |
+|---|---|
+| 1 預設與指定資料夾、真實 PNG／摘要 | PASS：兩種真實批次，各 2 成功／1 故意壞圖，成功 PNG 開啟及來源對帳 |
+| 2 Compact＋SwinIR 共用流程、单一預設 | 部分：正式 Compact 通過且現為指定候選；SwinIR 缺權重，未驗收 |
+| 3 自動 GPU／CPU、明示裝置 | PASS：實際 CUDA 與隱藏 CUDA 後的 32×28 正式權重 CPU 分支均成功 |
+| 4 RGB／float／BCHW／dtype/device／嚴格倍率尺寸 | PASS：focused checks 及真實 Compact 512×512、奇數尺寸 129×97／127×95、極小 CPU 尺寸均正確 |
+| 5 自動 overlap tiling、所有邊界、真實接縫 | 未完成：phase-04 尚未開始，未執行完整 4K |
+| 6 建立 output、原始與無關輸出保留、成功才覆蓋 | PASS：真實批次來源／無關 output hash 及覆蓋通過；同 stem／別名／儲存失敗 correctness checks 通過 |
+| 7 致命錯誤、空輸入、壞圖繼續與計數 | PASS：真實負向／新增 CLI tests 與 2 成功 1 失敗完整批次證據；舊檔未被冒充成功 |
+| 8 correctness tests 與可追溯 README | 當前範圍 PASS：25 tests、真實執行、版本／權重／來源／命令／限制已記錄；整體最終驗收尚缺第 2／5 項 |
+
+- PLANS 整體完成標準尚未達成：Phase 01／02 Complete，03 Blocked，04 Not started。沒有將計畫、mock、skipped 或尚未執行部分当作完成。此次沒有新 dependencies、其他資料下載、push、分支／worktree 變更，也沒有修改 AGENTS.md。
