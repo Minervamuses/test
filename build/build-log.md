@@ -6,7 +6,7 @@
 
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻礙 |
 |---|---|---|---|---|---|
-| 01 — 單張推論 | Blocked | 2026-09-15 | — | 13 項 focused tests、CPU/GPU 合成 Compact CLI 通過（見下文） | 框架已就緒；等待真實圖片及預訓練 Compact checkpoint 驗收 |
+| 01 — 單張推論 | In progress | 2026-09-15 | — | 13 項 focused tests、CPU/GPU 合成 Compact CLI 通過；2026-09-17 恢復真實驗收 | 已獲指定 Compact 權重／小裁切驗證授權，尚待執行 |
 | 02 — 資料夾 CLI | Not started | — | — | — | 尚未進入實作 preflight |
 | 03 — 模型相容性 | Not started | — | — | — | 尚未進入實作 preflight |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
@@ -232,3 +232,13 @@ git diff --check
 
 - PASS：ffprobe exit 0；主影像 stream 0 為 H.264、3840×2160、30000/1001 fps；容器 duration 56.656600 秒、nb_frames 1698（中繼資料，未逐幀解碼）。重新讀取本機檔案計算的 SHA-256 相符；資料夾只有上述一支 MP4，沒有殘留 `.part`。新增 `.gitignore` 的 `/test-data/`，ignore 核對與 diff whitespace 檢查通過；影片不納入 Git。
 - **Phase 01 維持 Blocked，後續階段狀態不變。** 本次只取得影片素材，未抽幀、未取得預訓練權重、未跑 SR 或人工畫質驗收；不把檔案完整性與影片中繼資料檢查當成真實推論通過。未改程式，故未重跑軟體測試。
+
+### 2026-09-17T20:14:13+08:00 — Phase 01 指定 Compact 真實驗證 preflight
+
+- 使用者選定 `realesr-general-x4v3.pth`，要求判斷 VRAM 可行後採用並開始驗證。Blocked → In progress；PLANS 補充指定權重下載與既有影片抽取小裁切的授權，保留歷史缺材料證據。
+- 依序重讀適用 AGENTS、GOALS、PLANS、build-log、phase-01、實際 CLI／I/O／inference／兩份 tests／pyproject；沒有 context 或 code_review 文件。live Git 為 main／`7fe2103`，`git status --short` 乾淨；models、input、output 各只有 `.gitkeep`，test-data 只有已授權 MP4。唯讀同階段程式審查未發現阻止本次驗證的問題。
+- 環境：Windows 只呼叫 `wsl.exe -d Ubuntu-24.04`，專案 `/home/minervamuses/drone-image-analysis`，Linux kernel 6.6.87.1；`command -v bash git python3 ffmpeg ffprobe` 均為 `/usr/bin/`。實際 `nvidia-smi --query-gpu=name,memory.total,memory.free,driver_version,utilization.gpu --format=csv`：RTX 5070 Ti Laptop，12227 MiB total／10633 MiB free、driver 591.74、GPU 6%；`free -h`：31 GiB RAM／30 GiB available；`df -h .`：842 GiB available。
+- 唯讀 GitHub API `https://api.github.com/repos/xinntao/Real-ESRGAN/releases/tags/v0.2.5.0`：release id 65167840，指定 asset id 76259217，4,885,111 bytes，建立 2022-08-30T03:47:59Z、更新 03:48:07Z；`digest` 為 null，沒有來源公布的 SHA-256 可比對。只取此 asset，完成後記本機 hash，不冒稱已比對官方 hash。
+- 指定來源：`https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth`。官方 repository [LICENSE](https://github.com/xinntao/Real-ESRGAN/blob/v0.2.5.0/LICENSE) 為 BSD-3-Clause；release tag 早於此 asset 加入時間，不把 tag 當作 checkpoint 建立日期。後續以實際 descriptor 確認 Compact／RGB／4×。
+- 最小預定工作：只下載 4.89 MB 指定 checkpoint（下載上限 10 MB／120 秒）、從既有 MP4 第 10 秒抽一張 RGB PNG，再取有內容的 512×512 原尺寸裁切；單張 GPU 驗證採現有 float32 程式，每個推論程序上限 120 秒，預估全部數分鐘，無付費 API／新增套件。先視覺選裁切，保留來源與 provenance；不跑整段影片、模型 sweep、4K 全圖或提早實作 tiling。
+- 預定 acceptance：真實 CLI 成功 PNG／scale 尺寸、來源 hash 不變、開啟原圖及結果檢查色彩內容；記錄 descriptor／device／耗時與峰值 PyTorch VRAM。既有程式未變，重用 13 項 focused tests 及真正缺／壞模型 CLI 負向證據，不重跑相同軟體 suite。任何必要失敗先處理，尚無真實推論 PASS。
