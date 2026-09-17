@@ -7,7 +7,7 @@
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻礙 |
 |---|---|---|---|---|---|
 | 01 — 單張推論 | Complete | 2026-09-15 | 2026-09-17 | 真實 Compact GPU 512→2048 PNG／人工檢視／原始 hash／VRAM 通過；既有 13 tests 及負向 CLI 證據 | 無；4K 不屬本階段驗收 |
-| 02 — 資料夾 CLI | In progress | 2026-09-17 | — | 前置 Phase 01 真實驗收 Complete；已讀本階段範圍／測試要求 | 尚待 CLI 實作及代表批次驗收 |
+| 02 — 資料夾 CLI | Complete | 2026-09-17 | 2026-09-17 | CLI 12＋I/O 7 tests；預設／args 真實 GPU 批次 2 成功 1 壞圖，極小真實 CPU 通過 | 無 |
 | 03 — 模型相容性 | Not started | — | — | — | 尚未進入實作 preflight |
 | 04 — 分塊與驗收 | Not started | — | — | — | 尚未進入實作 preflight |
 
@@ -283,3 +283,22 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 實際命令：WSL 專案根目錄 `.venv/bin/python -m unittest discover -s tests -p test_cli.py -v`。初跑 12 methods，1.331 秒、12 failures（含 subtests）；發現 directory-alias 測試可能誤接受 argparse 不支援參數，補上不得包含 unrecognized arguments 的 assertion，再跑 0.696 秒、15 failures（含 subtests）、exit 1。這是測試辨識能力修正，production 尚未修改。
 - 失敗原因符合缺少功能：--input／--output 未提供、多圖被 Phase 01 guard 拒絕、output 是檔案的設定錯誤直到推論後才發現。缺／非目錄 input、致命模型與單張覆蓋保留原行為已通過。未把預期 red tests 標為驗收 PASS。
 - 已於 test-data/phase-02-cli-20260917/ 準備隔離真實圖片；fixtures.json 記原 frame hash／裁切座標／格式／各輸入 hash。預設案例 129×97 JPEG、故意損壞 PNG、127×95 TIFF；CPU 僅 32×28 PNG。沒有新資料下載或改原影片。
+
+### 2026-09-17T20:30:29+08:00 — Phase 02 CLI 實作與真實批次驗收 Complete
+
+- 前一步 `3fe61ed` 保存預期失敗測試。第一個 production patch 只改 `src/drone_sr/__main__.py`：獨立 --input／--output、穩定第一層列舉、單次載入模型、逐張錯誤隔離／成功才計數、GPU 名稱；寫入前判斷輸出目錄、同 stem 衝突、所有輸入的 path／symlink／hardlink 別名，沿用原子 write_png。每張結束釋放 result，下一張不保留前張 GPU output。沒有修改模型、I/O、依賴或新增 production 模組。
+- 實際 WSL 專案根目錄命令：`.venv/bin/python -m unittest discover -s tests -p test_cli.py -v` **PASS 12／12，1.310 秒**；`.venv/bin/python -m unittest discover -s tests -p test_image_io.py -v` **PASS 7／7，0.032 秒**；`.venv/bin/python -m drone_sr --help` 只列 help／input／output，exit 0；`git diff --check` PASS。無 skipped。唯讀同階段 diff review 未發現阻擋問題；沒有因審查再擴大功能。
+- 真實整合命令：`timeout 400 .venv/bin/python test-data/phase-02-cli-20260917/validate_cli.py`，整體 exit 0、約 8.51 秒；script 對每個子程序設 120 秒 timeout，只執行下列三次真正 CLI，沒有 mock／改模型或掃描參數。
+
+| 案例／cwd（相對專案） | 子程序實際參數 | 裝置／結果 | 含啟動耗時 |
+|---|---|---|---|
+| `test-data/phase-02-cli-20260917/default run` | `.venv/bin/python -m drone_sr`（Python 使用專案絕對路徑） | cuda:0；Processed 2／Failed 1；exit 1 為預期壞圖結果 | 3.253 秒 |
+| `test-data/phase-02-cli-20260917/runner location` | 同一 Python `-m drone_sr --input '../default run/input' --output '/home/minervamuses/drone-image-analysis/test-data/phase-02-cli-20260917/custom output'` | cuda:0；Processed 2／Failed 1；exit 1 為預期壞圖結果 | 2.801 秒 |
+| `test-data/phase-02-cli-20260917/cpu run` | 同一 Python `-m drone_sr`；子程序 env `CUDA_VISIBLE_DEVICES=-1 OMP_NUM_THREADS=1 MKL_NUM_THREADS=1` | 真實 CPU；Processed 1／Failed 0；exit 0 | 2.110 秒 |
+
+- GPU 兩次都以 `a_good.JPG → m_broken.PNG → z_good.TIFF` 順序執行；壞圖顯示 cannot identify image file，沒有輸出檔，之後 TIFF 成功。JPEG 129×97 → 516×388；TIFF 127×95 → 508×380；兩次介面產出的各 PNG SHA 相同：a_good `7d4eeb5df66edac8715f9ff98610d610b4af8859d41e7aee8c757f3ad6141af5`、z_good `edf3dbea185b7df5ef7b1d0ce80716081de02632862407937422b6eb0f35939e`。CPU tiny 32×28 → 128×112，SHA `90fd404e1d56f8889633313ac8a5a41339fb2e6ea1aeac33bf1970737afe22e7`。
+- 原始圖／壞圖均與 fixtures.json 中 SHA 相同，原 frame SHA 不變；GPU 兩個輸出資料夾內，為本次驗收建立的舊 a_good.png 已替換成新 PNG，untouched.txt 的前後 hash 相同。真正相同模型可在其他 cwd 運行，證明 checkpoint 不隨資料夾參數改變。CLI tests 另覆蓋 input-only／output-only、五格式大小寫、同 stem 全失敗／其他成功、別名、儲存失敗保留舊檔與後續繼續、致命模型先停止。
+- 人工開啟 a_good 原圖及兩個 GPU 成功 PNG，海面內容、反光位置、RGB 色彩正常；CPU tiny PNG 可開啟。viewer 不支援直接開 TIFF（工具回報 unsupported image），已用 Pillow 解碼成 `test-data/phase-02-cli-20260917/z_good_source_preview.png` 並 assert RGB bytes 完全相同，再開啟比對；preview SHA `096fbf05df7ad227ec5c3a39bc4b963811985c514fbbd78079aa4dbd5198ac05`。這是檢視工具限制，原始 TIFF 的真正 application 解碼／推論已通過，未修改輸入。
+- 每張圖的來源 frame、crop box、格式、input SHA 存於該 evidence 目錄 `fixtures.json`；輸出絕對路徑／SHA／尺寸／CLI argv／cwd／env／退出碼／耗時存於 `validation.json`，console 為 `default-cli.txt`、`custom-cli.txt`、`cpu-cli.txt`；一次性 script 為 `validate_cli.py`。沒有全套重跑或額外效能實驗。
+- Acceptance：兩種介面與 help **PASS**；真實 2 成功 1 失敗跑到底 **PASS**；輸入／模型／空目錄／壞圖既有與新增 checks **PASS**；原始／無關輸出／衝突／儲存失敗保護 **PASS**；真實 GPU 與極小真實 CPU 自動分支 **PASS**。Phase 02 In progress → Complete；README 同步已驗證介面與限制。
+- 下一個符合依賴條件為 phase-03，尚未宣稱第二個 checkpoint 或 4K／tiling 通過。

@@ -1,8 +1,8 @@
 # Drone Image Super-Resolution
 
-本機、單一 Spandrel 推論流程。目前完成 **Phase 01 真實單張驗證**：從 `input/` 讀取一張圖片，使用專案內的 `models/model.pth`，將同 stem 的 RGB PNG 寫入 `output/`，保留原圖。
+本機、單一 Spandrel 推論流程。目前完成 **真實單張驗證與資料夾批次 CLI**：從 `input/` 或指定資料夾逐張讀取圖片，使用專案內的 `models/model.pth`，將同 stem 的 RGB PNG 寫入 `output/` 或指定資料夾，保留原圖。
 
-已採用官方 `realesr-general-x4v3.pth`，通過真實影片 512×512 裁切的 GPU 推論。完整批次、`--input`／`--output`、SwinIR 相容性及大圖分塊屬後續階段，目前未提供。請先使用一張小圖；現階段多張輸入會明確停止。此驗證不代表完整 4K 或影片流程已完成。
+已採用官方 `realesr-general-x4v3.pth`，通過真實影片 512×512 裁切的 GPU 推論，以及小圖批次／極小 CPU 驗證。SwinIR 相容性及大圖分塊仍待後續階段；目前請使用小圖，此驗證不代表完整 4K 或影片流程已完成。
 
 ## 採用的環境與版本
 
@@ -46,18 +46,28 @@ python -m pip install --no-deps --no-build-isolation -e .
 ## 準備與執行
 
 1. 將下方指定的 Compact RGB SR `.pth` 權重準備為專案的 `models/model.pth`。程式不會下載模型。本機已保存原檔名，並以相對 symlink `models/model.pth → realesr-general-x4v3.pth` 使用它。
-2. 將一張小圖片放在 `input/` 第一層，接受 `.jpg`、`.jpeg`、`.png`、`.tif`、`.tiff`（大小寫皆可）。
+2. 將小圖片放在 `input/` 或指定資料夾第一層，接受 `.jpg`、`.jpeg`、`.png`、`.tif`、`.tiff`（大小寫皆可），不遞迴掃描。
 3. 在專案根目錄、啟用環境後執行：
 
 ```bash
 python -m drone_sr
 ```
 
+指定資料夾時：
+
+```bash
+python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
+```
+
+兩個參數各自可省略，預設為 `input/`、`output/`。含空白路徑請加引號；相對路徑以執行時的工作目錄為基準。模型仍固定於專案內，不隨資料夾參數改變。
+
 例如 `input/DJI_001.JPG` 對應 `output/DJI_001.png`。輸出不存在會建立；成功 PNG 完整寫入後才替換同名舊結果。來源與其 symlink／hard link 不可被當作輸出覆寫。預設資料夾相對於目前工作目錄，模型仍固定於原始專案內。
 
 啟動時自動選擇可用 CUDA，否則使用 CPU，並顯示 `Device`；CUDA 執行失敗會報錯，不會暗中改成 CPU 重跑大圖。尚無分塊，請不要直接交付大圖或整個資料集。多頁 TIFF、高位深與浮點圖片會明確拒絕；普通圖片轉成 RGB，不保存 alpha、GIS 或其他 metadata。
 
-缺輸入／缺模型／模型載入失敗會報錯；空輸入顯示 `No supported images found in input/`。單張成功或失敗均有對應檔名與 `Processed`／`Failed` 摘要。
+缺輸入、輸出路徑是檔案、相同輸入／輸出目錄、缺模型或模型載入失敗會報錯並停止；空輸入顯示 `No supported images found in input/`（指定路徑則顯示該路徑）。檔名穩定排序、逐張處理，模型只載入一次。
+
+壞圖、推論或儲存失敗會列出檔名及原因，繼續下一張。多張輸入映射同名 PNG 時，衝突項全部記失敗；輸出指向任何輸入的 symlink／hardlink 也拒絕。成功寫出的數量為 `Processed`，其餘為 `Failed`；全成功或無支援圖片時退出碼 0，設定錯誤或任一圖片失敗為 1。
 
 ## 採用的權重
 
@@ -83,10 +93,18 @@ python -m drone_sr
 - 已開啟原圖及 PNG：海面構圖、反光位置與藍綠色正常；細紋較平滑，未證明新增紋理是真實細節，沒有畫質分數或鯨魚細節驗收。此小裁切的 VRAM 有餘裕，不能據此承諾 4K 全圖或整段影片效能。
 - 輸入：`input/whaledrone_seek10s_x1536_y768_512.png`；輸出：`output/whaledrone_seek10s_x1536_y768_512.png`；完整來源／命令／雜湊／量測存於 `test-data/phase-01-compact-20260917/` 與 build-log。此目錄的腳本是單次驗證紀錄，不是正式 CLI 或可重跑 benchmark。
 
+同日完成 Phase 02：
+
+- CLI correctness tests 12／12、直接相關 I/O tests 7／7 通過。模型與快速 tensor 放大在 CLI tests 中是 mock；真實推論另由下列案例驗證。
+- 預設及指定含空白／相對路徑的批次，各用兩個真實小裁切和中間一張故意損壞的圖片；GPU 均跑到底，Processed 2／Failed 1、退出碼 1 符合預期，成功 PNG 開啟正常。原始 hash、無關 output 保留，既有同名測試結果成功替換；兩種介面輸出 hash 相同。
+- 隱藏子程序 CUDA 後，以同一正式權重及真正 CLI 跑 32×28 真實裁切，CPU 成功產生 128×112 PNG，約 2.11 秒（含啟動）；沒有拿 mock 當 CPU 證據。
+- 原始素材座標、格式、hash、完整 console／命令與結果存於 `test-data/phase-02-cli-20260917/` 及 build-log。此目錄的壞圖與舊輸出僅供本次隔離驗收。
+
 ```bash
 python -m pip check
 python -m unittest discover -s tests -p 'test_image_io.py' -v
 python -m unittest discover -s tests -p 'test_inference.py' -v
+python -m unittest discover -s tests -p 'test_cli.py' -v
 ```
 
 測試中的合成像素、未訓練小模型與 mock 用來驗證程式契約，**不證明真實 SR 品質或預訓練 checkpoint 相容性**。執行狀態與完整觀察證據以 [build/build-log.md](build/build-log.md) 為準；所有階段的完成條件見 [build/GOALS.md](build/GOALS.md)。
