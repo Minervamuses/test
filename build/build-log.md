@@ -396,3 +396,13 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 第一個 production patch 的 test_tiling 3／4 通過，descriptor padding case 失敗（162／297 elements，max diff9）。查已安裝 model_descriptor.py:451／478，輸入合約為 [0,1] 且輸出 clamp_；新 test fixture 卻是 0..10 座標。只將該 fixture /10，保留精確 oracle，不改 production 掩蓋測試問題。此為測試資料缺陷，非真實模型／分塊失敗。
 - 實際 WSL 命令：`.venv/bin/python -m unittest discover -s tests -p test_tiling.py -v` **4／4 PASS，0.024 秒**；`.venv/bin/python -m unittest discover -s tests -p test_inference.py -v` **6／6 PASS，0.021 秒**；兩程序合計約4.11秒、exit0、無 skipped；`git diff --check` PASS。尚未重跑完整 suite。
 - 實際唯讀 diff review 未見座標、GPU tensor 引用或共用路徑 blocker；確認 fixture 修正符合 Spandrel 合約。真實接縫、auto 分派與大圖 RAM 仍待驗證，不因 correctness tests 通過標 Complete。
+
+
+### 2026-09-17T21:53:35+08:00 — Phase 04 兩模型真實 direct／tile 小例通過
+
+- 實作提交 `3c5d8b1` 後，從既有 frame 取 Compact box(1408,704,2048,1280)→640×576、SwinIR box(1536,768,1728,944)→192×176；input SHA 各為 `3d9abc3aff58a25f3f1aca41c141232924cf6af157fee835dd9696860c8f297e`、`18a8c5f3b2a62552fef131f7ab3cb62a34bd7752443ce3e0ac0817d9863c1426`。fixtures.json 保存原 frame path／SHA／座標，未改來源。
+- 實際命令各一次：`timeout 180 .venv/bin/python -u test-data/phase-04-tiling-20260917/validate_small.py compact`，及相同命令尾端 `swinir`；stdout/stderr 分別重導 compact/console.txt、swinir/console.txt。兩者 exit0。一次性程序以 inference.MODEL_PATH 設定已保存 checkpoint 路徑，只影響該程序；真正 load_model／descriptor／_upscale_direct／upscale_tiled 未 mock，磁碟 model.pth 始終保持 Compact。
+- Compact：descriptor tiling=SUPPORTED，float32／cuda:0；640×576→2560×2304。direct 0.286 秒、auto tile core512／halo32 0.185 秒（同步計時含上傳與必要 CPU 拼接）；tiled result在CPU，GPU peak allocated截至forward為311,608,320bytes。輸出 compact/direct.png SHA `3776cc69905ffbe9dcbf9a8e3dee14a490c9908bbb20d7ebdb567df4cdfe602e`、compact/tiled.png SHA `1e5b92c84393de9aa0744b3ab5e69da93f51b0470500b6705e411714973938de`。單次順序量測受載入／暖快取影響，不當效能比較。
+- SwinIR：DISCOURAGED，float32／cuda:0；192×176→768×704。direct 1.725 秒、內部強制 core128／halo32 tiled 3.831 秒；tiled result在CPU。swinir/direct.png SHA `8ae70c822b1ed4f9f4d791c05a90b2123cb3c99cc96a26c100779cabc238e6b8`、swinir/tiled.png SHA `890685f6cd5a7b1c46db82bc348f893e9c0350a491ab21d207b4c6ca952aead8`。此小例確認同一路徑可分塊，不宣稱大型 SwinIR 或所有內容無縫。仍有第三方 meshgrid 未來 indexing warning，非失敗。
+- 人工開啟完整 frame、Compact tiled PNG／direct與tiled接縫裁切，以及 SwinIR direct／tiled完整PNG與接縫裁切；波紋與反光位置連續，未见明顯直線拼縫、空白條、重影或殘留padding。Compact seam crop輸出座標(1792,1792,2304,2304)，穿過(2048,2048)核心接點；SwinIR seam crop(384,384,640,640)，穿過(512,512)。每張 direct-seam.png／tiled-seam.png 的 path、cropbox、SHA 與原 PNG SHA 均在各 validation.json，可追溯。
+- 所有 PNG 寫出前經finite檢查、尺寸嚴格4×、來源與checkpoint hash不變。兩模型最小 tiled acceptance PASS；仍待完整4K CLI、邊緣視覺與整體收尾。
