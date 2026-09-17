@@ -12,3 +12,57 @@ __pycache__/
 /models/*
 !/models/.gitkeep
 /test-data/
+
+# Local environments, caches, and editor state
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+.ipynb_checkpoints/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.log
+
+# Credentials and private local configuration
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+credentials.json
+credentials-*.json
+client_secret*.json
+service-account*.json
+/secrets/
+/private/
+
+# Model weights and exported inference engines, wherever stored
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.onnx
+*.engine
+*.gguf
+*.h5
+*.hdf5
+*.tflite
+*.pb
+*.bin
+
+# Local datasets
+/data/
+/datasets/
