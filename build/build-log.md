@@ -276,3 +276,10 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 - 範圍：只擴充現有 __main__.py 的資料夾 args、第一層序列批次、逐圖失敗／計數與來源保護；必要時調整 I/O，不新增依賴、公開技術選項、模組或框架。先新增 tests/test_cli.py 觀察 Phase 01 缺少批次介面的預期失敗，再最小修改。
 - 代表驗收使用既有影片 frame 的兩個小裁切及一份故意損壞檔，放於 test-data/phase-02-cli-20260917/ 的隔離資料夾；預設／指定含空白路徑各跑一次，覆蓋只涉及本次建立的驗收 output。CPU 只用約 32×28 真實裁切，以子程序 CUDA_VISIBLE_DEVICES=-1 隱藏 GPU；不使用 mock 冒充 CPU。每個程序上限 120 秒，預估全部約 1 分鐘內，無下載／付費工作。
 - 預定檢查：focused test_cli、直接相關 image_io、--help；真實批次 Processed 2／Failed 1／非零退出、成功 PNG 開啟、原始／無關 output 保留，以及極小 CPU 4× PNG。既有 GPU／缺壞模型證據沿用 Phase 01。必要檢查失敗先處理；超出兩次聚焦修正／昂貴工作界線即停止，不進依賴階段。
+
+### 2026-09-17T20:27:50+08:00 — Phase 02 最小失敗測試
+
+- 新增 tests/test_cli.py，12 個 unittest 方法；真實暫存圖片 I/O，mock model／便宜 tensor 放大僅作 correctness checks。涵蓋獨立 args／空白路徑、五格式／大寫／非遞迴、壞圖繼續、同 stem 衝突、跨輸入 symlink／hardlink、防覆寫及儲存失敗；沒有新測試框架。
+- 實際命令：WSL 專案根目錄 `.venv/bin/python -m unittest discover -s tests -p test_cli.py -v`。初跑 12 methods，1.331 秒、12 failures（含 subtests）；發現 directory-alias 測試可能誤接受 argparse 不支援參數，補上不得包含 unrecognized arguments 的 assertion，再跑 0.696 秒、15 failures（含 subtests）、exit 1。這是測試辨識能力修正，production 尚未修改。
+- 失敗原因符合缺少功能：--input／--output 未提供、多圖被 Phase 01 guard 拒絕、output 是檔案的設定錯誤直到推論後才發現。缺／非目錄 input、致命模型與單張覆蓋保留原行為已通過。未把預期 red tests 標為驗收 PASS。
+- 已於 test-data/phase-02-cli-20260917/ 準備隔離真實圖片；fixtures.json 記原 frame hash／裁切座標／格式／各輸入 hash。預設案例 129×97 JPEG、故意損壞 PNG、127×95 TIFF；CPU 僅 32×28 PNG。沒有新資料下載或改原影片。

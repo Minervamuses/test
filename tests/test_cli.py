@@ -1,0 +1,229 @@
+import contextlib
+import io
+import tempfile
+import unittest
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
+
+import torch
+from PIL import Image
+
+from drone_sr.__main__ import main
+
+
+class CLITests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+
+    def picture(self, path, color=(12, 34, 56)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (3, 2), color).save(path)
+        return path.read_bytes()
+
+    def run_cli(self, args=(), *, cwd=None, model_error=None):
+        output = io.StringIO()
+        descriptor = SimpleNamespace(device=torch.device("cpu"))
+        with (
+            contextlib.chdir(cwd or self.root),
+            contextlib.redirect_stdout(output),
+            contextlib.redirect_stderr(output),
+            patch("sys.argv", ["drone_sr", *args]),
+            patch("drone_sr.inference.load_model", return_value=descriptor,
+                  side_effect=model_error) as loader,
+            patch("drone_sr.inference.upscale", side_effect=lambda image, model:
+                  image.repeat_interleave(2, -2).repeat_interleave(2, -1)) as upscale,
+        ):
+            try:
+                code = main()
+            except SystemExit as error:
+                code = error.code
+        return code, output.getvalue(), loader.call_count, upscale.call_count
+
+    def test_default_and_independently_optional_folder_arguments(self):
+        cases = [
+            ([], "input", "output"),
+            (["--input", "photos here"], "photos here", "output"),
+            (["--output", "results here"], "input", "results here"),
+            (["--input", "photos here", "--output", "results here"],
+             "photos here", "results here"),
+        ]
+        absolute = self.root / "absolute paths"
+        cases.append((["--input", str(absolute / "photos"), "--output",
+                       str(absolute / "results")],
+                      absolute / "photos", absolute / "results"))
+        for index, (args, source_dir, output_dir) in enumerate(cases):
+            with self.subTest(args=args):
+                cwd = self.root / str(index)
+                cwd.mkdir()
+                source = cwd / source_dir / "sample.png"
+                before = self.picture(source)
+                code, text, loads, calls = self.run_cli(args, cwd=cwd)
+                self.assertEqual(code, 0, text)
+                self.assertEqual((loads, calls), (1, 1))
+                with Image.open(cwd / output_dir / "sample.png") as result:
+                    self.assertEqual((result.format, result.mode, result.size),
+                                     ("PNG", "RGB", (6, 4)))
+                self.assertEqual(source.read_bytes(), before)
+                self.assertIn("Processed: 1", text)
+                self.assertIn("Failed: 0", text)
+
+    def test_missing_or_non_directory_input_stops_before_model(self):
+        for as_file in (False, True):
+            with self.subTest(as_file=as_file):
+                if as_file:
+                    (self.root / "input").write_text("not a directory")
+                code, text, loads, calls = self.run_cli()
+                self.assertNotEqual(code, 0)
+                self.assertIn("input", text.lower())
+                self.assertEqual((loads, calls), (0, 0))
+                self.assertFalse((self.root / "output").exists())
+
+    def test_empty_input_has_no_model_work(self):
+        source = self.root / "empty folder"
+        source.mkdir()
+        (source / "notes.txt").write_text("not an image")
+        code, text, loads, calls = self.run_cli(["--input", "empty folder"])
+        self.assertEqual(code, 0, text)
+        self.assertIn("No supported images found", text)
+        self.assertIn("empty folder", text)
+        self.assertEqual((loads, calls), (0, 0))
+
+    def test_output_file_is_rejected_before_processing(self):
+        self.picture(self.root / "input" / "sample.png")
+        target = self.root / "output"
+        target.write_bytes(b"preserve this file")
+        code, text, loads, calls = self.run_cli()
+        self.assertNotEqual(code, 0)
+        self.assertIn("output", text.lower())
+        self.assertEqual((loads, calls), (0, 0))
+        self.assertEqual(target.read_bytes(), b"preserve this file")
+
+    def test_formats_stable_order_and_corrupt_image_continuation(self):
+        names = ["A.JPG", "b_bad.PNG", "c.JPEG", "d.png", "e.TIF", "f.tiff"]
+        for name in reversed(names):
+            if name != "b_bad.PNG":
+                self.picture(self.root / "input" / name)
+        (self.root / "input" / "b_bad.PNG").write_bytes(b"broken image")
+        (self.root / "input" / "notes.txt").write_text("ignore")
+        self.picture(self.root / "input" / "nested" / "ignore.png")
+        originals = {p.name: p.read_bytes() for p in (self.root / "input").iterdir()
+                     if p.is_file()}
+        code, text, loads, calls = self.run_cli()
+        self.assertNotEqual(code, 0)
+        self.assertEqual((loads, calls), (1, 5))
+        self.assertIn("Processed: 5", text)
+        self.assertIn("Failed: 1", text)
+        positions = [text.index(f"[{index}/6] {name}")
+                     for index, name in enumerate(names, 1)]
+        self.assertEqual(positions, sorted(positions))
+        self.assertEqual({p.name for p in (self.root / "output").iterdir()},
+                         {f"{Path(name).stem}.png" for name in names if name != "b_bad.PNG"})
+        for name, before in originals.items():
+            self.assertEqual((self.root / "input" / name).read_bytes(), before)
+
+    def test_success_overwrites_its_result_and_preserves_other_output(self):
+        source = self.root / "input" / "sample.png"
+        self.picture(source)
+        self.picture(self.root / "output" / "sample.png", (255, 0, 0))
+        unrelated = self.root / "output" / "other.txt"
+        unrelated.write_bytes(b"unrelated")
+        code, text, _, _ = self.run_cli()
+        self.assertEqual(code, 0, text)
+        with Image.open(self.root / "output" / "sample.png") as result:
+            self.assertEqual(result.getpixel((0, 0)), (12, 34, 56))
+        self.assertEqual(unrelated.read_bytes(), b"unrelated")
+
+    def test_all_same_stem_inputs_fail_and_unrelated_image_continues(self):
+        for name in ("same.jpg", "same.png", "other.png"):
+            self.picture(self.root / "input" / name)
+        old = self.root / "output" / "same.png"
+        before = self.picture(old, (255, 0, 0))
+        code, text, loads, calls = self.run_cli()
+        self.assertNotEqual(code, 0)
+        self.assertEqual((loads, calls), (1, 1))
+        self.assertIn("Processed: 1", text)
+        self.assertIn("Failed: 2", text)
+        self.assertEqual(old.read_bytes(), before)
+        self.assertTrue((self.root / "output" / "other.png").is_file())
+
+    def test_same_input_output_directory_and_symlink_alias_are_rejected(self):
+        source = self.root / "input" / "sample.png"
+        before = self.picture(source)
+        alias = self.root / "alias"
+        alias.symlink_to(self.root / "input", target_is_directory=True)
+        for destination in ("input", "input/../input", "alias"):
+            with self.subTest(destination=destination):
+                code, text, loads, calls = self.run_cli(["--output", destination])
+                self.assertNotEqual(code, 0)
+                self.assertNotIn("unrecognized arguments", text)
+                self.assertEqual((loads, calls), (0, 0))
+                self.assertEqual(source.read_bytes(), before)
+
+    def test_output_alias_of_a_different_input_is_rejected(self):
+        for hardlink in (False, True):
+            with self.subTest(hardlink=hardlink):
+                cwd = self.root / str(hardlink)
+                first = cwd / "input" / "a.jpg"
+                second = cwd / "input" / "b.png"
+                first_before = self.picture(first)
+                second_before = self.picture(second, (78, 90, 12))
+                target = cwd / "output" / "a.png"
+                target.parent.mkdir()
+                target.hardlink_to(second) if hardlink else target.symlink_to(second)
+                code, text, _, calls = self.run_cli(cwd=cwd)
+                self.assertNotEqual(code, 0)
+                self.assertIn("Processed: 1", text)
+                self.assertIn("Failed: 1", text)
+                self.assertEqual(first.read_bytes(), first_before)
+                self.assertEqual(second.read_bytes(), second_before)
+                self.assertTrue(target.samefile(second))
+                self.assertTrue((cwd / "output" / "b.png").is_file())
+
+    def test_storage_failure_preserves_old_result_and_later_image_continues(self):
+        for name in ("a.png", "b.png"):
+            self.picture(self.root / "input" / name)
+        old = self.root / "output" / "a.png"
+        before = self.picture(old, (255, 0, 0))
+        original_save = Image.Image.save
+        saves = 0
+
+        def fail_once(image, *args, **kwargs):
+            nonlocal saves
+            saves += 1
+            if saves == 1:
+                raise OSError("simulated disk full")
+            return original_save(image, *args, **kwargs)
+
+        with patch.object(Image.Image, "save", fail_once):
+            code, text, _, _ = self.run_cli()
+        self.assertNotEqual(code, 0)
+        self.assertIn("simulated disk full", text)
+        self.assertIn("Processed: 1", text)
+        self.assertIn("Failed: 1", text)
+        self.assertEqual(old.read_bytes(), before)
+        self.assertEqual({p.name for p in old.parent.iterdir()}, {"a.png", "b.png"})
+
+    def test_fatal_model_error_does_not_process_images(self):
+        self.picture(self.root / "input" / "sample.png")
+        code, text, loads, calls = self.run_cli(
+            model_error=RuntimeError("Unable to load SR model: invalid checkpoint"))
+        self.assertNotEqual(code, 0)
+        self.assertIn("Unable to load SR model: invalid checkpoint", text)
+        self.assertEqual((loads, calls), (1, 0))
+        self.assertFalse((self.root / "output").exists())
+
+    def test_help_exposes_only_folder_options(self):
+        code, text, loads, calls = self.run_cli(["--help"])
+        self.assertEqual(code, 0)
+        for option in ("--input", "--output"):
+            self.assertIn(option, text)
+        for option in ("--model", "--device", "--tile", "--scale", "--batch", "--overwrite"):
+            self.assertNotIn(option, text)
+        self.assertEqual((loads, calls), (0, 0))
+
+
+if __name__ == "__main__":
+    unittest.main()
