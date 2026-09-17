@@ -45,7 +45,7 @@ class TilingTests(unittest.TestCase):
                         )
 
     def test_descriptor_padding_is_removed_before_tile_coordinates_are_used(self):
-        source = coordinate_ramp(11, 1)
+        source = coordinate_ramp(11, 1) / 10
         descriptor = synthetic_descriptor(scale=3)
         output = upscale_tiled(
             source, descriptor.scale, lambda tile: _upscale_direct(tile, descriptor),

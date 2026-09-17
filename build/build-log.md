@@ -388,3 +388,11 @@ ffmpeg -hide_banner -loglevel warning -nostdin -n -ss 10 -i test-data/DJI_202601
 
 - 前一步 `4d1c32c` 提交 preflight。新增 tests/test_tiling.py，4 個 methods，以已知 RGB 座標 ramp 及 repeat_pixels oracle 驗 core8／halo2、scale2／3、四種尺寸／6 個 halo 範圍、真正 toy descriptor minimum4／multiple4 補邊裁回，以及錯誤 shape／第二塊失敗傳遞。沒有新測試框架或真實模型計算。
 - 子代理實際 WSL 命令 `.venv/bin/python -m unittest discover -s tests -p test_tiling.py -v`：exit 1、ModuleNotFoundError: drone_sr.tiling；unittest 0.000 秒、程序約 1.55 秒。父代理讀取檔案確認測試範圍；這是尚無分塊實作的預期失敗，不記 PASS。Production 尚未修改。
+
+
+### 2026-09-17T21:50:47+08:00 — Phase 04 分塊實作與 focused checks
+
+- 前一步 `d1df447` 提交 red tests。新增 src/drone_sr/tiling.py；CPU 輸入／完整輸出、core512／halo32，逐塊裁上下文再按 scale 拼核心，prediction 立即搬回 CPU 並刪除引用。inference.py 將原單張函式命名 _upscale_direct，小圖沿用，大圖經同一函式逐塊處理。只改這兩個 production 檔，沒有 CLI／依賴／I/O 變更或模型名稱分支。
+- 第一個 production patch 的 test_tiling 3／4 通過，descriptor padding case 失敗（162／297 elements，max diff9）。查已安裝 model_descriptor.py:451／478，輸入合約為 [0,1] 且輸出 clamp_；新 test fixture 卻是 0..10 座標。只將該 fixture /10，保留精確 oracle，不改 production 掩蓋測試問題。此為測試資料缺陷，非真實模型／分塊失敗。
+- 實際 WSL 命令：`.venv/bin/python -m unittest discover -s tests -p test_tiling.py -v` **4／4 PASS，0.024 秒**；`.venv/bin/python -m unittest discover -s tests -p test_inference.py -v` **6／6 PASS，0.021 秒**；兩程序合計約4.11秒、exit0、無 skipped；`git diff --check` PASS。尚未重跑完整 suite。
+- 實際唯讀 diff review 未見座標、GPU tensor 引用或共用路徑 blocker；確認 fixture 修正符合 Spandrel 合約。真實接縫、auto 分派與大圖 RAM 仍待驗證，不因 correctness tests 通過標 Complete。
