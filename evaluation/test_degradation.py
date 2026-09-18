@@ -33,14 +33,14 @@ class ModCropTests(unittest.TestCase):
 
         self.assertEqual(cropped.size, (40, 20))
         self.assertEqual(record.removed, (0, 0))
-        self.assertEqual(list(cropped.getdata()), list(original.getdata()))
+        self.assertEqual(cropped.tobytes(), original.tobytes())
 
     def test_surviving_pixels_are_untouched(self):
         original = _gradient(203, 101)
 
         cropped, _ = mod_crop(original)
 
-        self.assertEqual(list(cropped.getdata()), list(original.crop((0, 0, 200, 100)).getdata()))
+        self.assertEqual(cropped.tobytes(), original.crop((0, 0, 200, 100)).tobytes())
 
     def test_removes_at_most_three_pixels_per_side(self):
         for width, height in ((201, 102), (202, 103), (204, 104)):
@@ -62,7 +62,7 @@ class DownscaleTests(unittest.TestCase):
         expected = cropped.resize((50, 25), resample=Image.Resampling.BICUBIC)
 
         self.assertIs(RESAMPLE, Image.Resampling.BICUBIC)
-        self.assertEqual(list(downscale(cropped).getdata()), list(expected.getdata()))
+        self.assertEqual(downscale(cropped).tobytes(), expected.tobytes())
 
 
 class SavePngTests(unittest.TestCase):
@@ -87,7 +87,7 @@ class SavePngTests(unittest.TestCase):
 
         with Image.open(destination) as reloaded:
             self.assertEqual(reloaded.mode, "RGB")
-            self.assertEqual(list(reloaded.convert("RGB").getdata()), list(image.getdata()))
+            self.assertEqual(reloaded.convert("RGB").tobytes(), image.tobytes())
 
 
 if __name__ == "__main__":

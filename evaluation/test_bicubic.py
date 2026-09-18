@@ -68,7 +68,7 @@ class BicubicBaselineTests(unittest.TestCase):
         with Image.open(self.lr_path) as low:
             expected = low.convert("RGB").resize(self.truth_size, resample=Image.Resampling.BICUBIC)
         with Image.open(self.destination) as produced:
-            self.assertEqual(list(produced.convert("RGB").getdata()), list(expected.getdata()))
+            self.assertEqual(produced.convert("RGB").tobytes(), expected.tobytes())
 
     def test_refuses_to_overwrite_the_lr_file(self):
         with self.assertRaises(ValueError):
