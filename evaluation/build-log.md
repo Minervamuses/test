@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|
 | 01 — 固定退化契約與 bicubic 基線 | Complete | 2026-09-19 | 2026-09-19 | 24 項檢查通過；真實樣本尺寸鏈 4056×3040 → 1014×760 → 4056×3040；bicubic 與獨立重算逐位元相同 | 無 |
 | 02 — 度量模組與 lpips 依賴 | Complete | 2026-09-19 | 2026-09-19 | 52 項檢查通過；PSNR 48.1308 dB 對上手算；SSIM 與 naive 參考差 ≤1.3e-15；LPIPS 同圖 0.0 | 無（兩項 GPU 量測列入「待 GPU 補測」） |
-| 03 — SR 線接上未修改的 pipeline | Not started | — | — | — | 無 |
+| 03 — SR 線接上未修改的 pipeline | In progress | 2026-09-19 | — | — | 無 |
 | 04 — 執行器、run 目錄與逐張＋平均報告 | Not started | — | — | — | 無 |
 | 05 — 真實小樣本驗收、成本量測與文件對齊 | Not started | — | — | — | 無 |
 
@@ -195,6 +195,23 @@
 - **阻塞：** 無。依 `PLANS.md`「GPU 交接協定」，推遲的兩項都屬於協定列出的三類（GPU 資源數字、GPU 決定性檢查），**沒有任何正確性檢查被推遲**，因此本階段標 `Complete`，phase-04 可以開始。
 - **下一步：** phase-03（SR 線接上未修改的 pipeline）。依賴 phase-01，已 `Complete`。同時請使用者在自己的 shell 執行 `bash evaluation/gpu_checks/probe_lpips_full_size.sh` 並貼回輸出。
 - **證據位置：** 本筆記錄。本階段 commit 依序為 `1d38c33`（`docs:` start）、`10a0958`（`test:` PSNR／SSIM red）、`4a4424f`（`feat:` PSNR）、`f1b3404`（`feat:` SSIM）、`7daf46f`（`test:` SSIM 交叉核對）、`bfb546d`（`test:` 輸入轉換）、`d2e2107`（`chore:` 釘版 lpips）、`66e7415`（`refactor:` 共用 validate_pair）、`926e025`（`test:` LPIPS red）、`e655679`（`feat:` LPIPS 包裝）、`2b97d40`（`chore:` 探測腳本），close 記錄本身另成一顆。
+
+## 2026-09-19 02:05 (CST) — Phase 03: preflight
+
+- **狀態：** `Not started` → `In progress`
+- **授權範圍：** [phases/phase-03-sr-line.md](phases/phase-03-sr-line.md)「實作與驗證計劃 / Preflight」。依賴 phase-01 已 `Complete`。
+- **本階段範圍（複述）：** 以 import 重用 `read_image`／`load_model`／`upscale`／`write_png`，斷言 `descriptor.scale == 4`，斷言 SR 輸出尺寸等於真值，模型只載入一次，記錄 device／耗時／峰值 RSS。
+- **非目標（複述）：** 不改 `src/drone_sr/**` 任何一行，不複製推論或分塊邏輯，不換模型、不調 tile，不算度量、不做報告。
+- **停止條件（複述）：** 需要改 `src/drone_sr/**`；`descriptor.scale != 4`；小樣本預估超過約十分鐘。
+- **驗證（實際觀察）：**
+  - `models/model.pth` → symlink 指向 `realesr-general-x4v3.pth`（4885111 bytes）。
+  - `load_model()` 回傳的 descriptor：architecture **`RealESRGAN Compact`**、**`scale = 4`**、`purpose = SR`、`input_channels = 3`、`output_channels = 3`、`tiling = ModelTiling.SUPPORTED`、`device = cpu`、`dtype = torch.float32`。倍率符合本計劃要求，仍會在實作中斷言。
+  - `torch.cuda.is_available()` → **`False`。量測環境：沙箱 session。** 依 `GOALS.md`「授權限制」這是沙箱狀態，不是本機能力；因此本階段在沙箱量到的 device 為 `cpu`，所有耗時與記憶體數字都屬 CPU 批次。
+  - `src/drone_sr/*.py` 與 `output/` 的雜湊快照沿用 preflight 階段建立的 761 筆清單（`$TMPDIR/baseline/manifest-before.txt`），結束時比對。
+- **限制：** 本筆為唯讀 preflight，尚未寫任何 SR 程式或產物。
+- **阻塞：** 無。
+- **下一步：** 先寫失敗檢查（倍率斷言、尺寸對齊、輸入來源），再分兩顆實作。
+- **證據位置：** 本筆記錄；commit 見本階段 close 記錄的清單。
 
 <!-- 追加重要事件時用這個格式：
 
