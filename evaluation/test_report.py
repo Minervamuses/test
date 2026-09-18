@@ -94,7 +94,9 @@ class ReportTests(unittest.TestCase):
     def test_the_average_section_states_counts_and_a_winner_per_metric(self):
         for metric in ("PSNR", "SSIM", "LPIPS"):
             with self.subTest(metric=metric):
-                self.assertRegex(self.text, rf"^\| {metric} \|.*\|$")
+                row = re.search(rf"^\| {metric} \| .+ \|$", self.text, re.MULTILINE)
+                self.assertIsNotNone(row, f"no average row for {metric}")
+                self.assertIn(row.group(0).split("|")[5].strip(), ("SR", "bicubic", "tie"))
         self.assertIn("納入 2", self.text)
         self.assertIn("排除 2", self.text)
 
