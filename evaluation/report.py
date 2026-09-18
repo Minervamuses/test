@@ -36,7 +36,8 @@ REQUIRED_HEADER_FIELDS = (
     "模型 scale",
     "SR tile 設定",
     "SR 線 device",
-    "度量 device",
+    "PSNR／SSIM device",
+    "LPIPS device",
     "cudnn.benchmark",
     "跨批次可比性",
     "色彩空間與 data_range",
@@ -81,7 +82,7 @@ class RunEnvironment:
     model_scale: int
     tile_size: int
     sr_device: str
-    metric_device: str
+    lpips_device: str
     cudnn_benchmark: bool
     lpips_version: str
     lpips_net: str
@@ -134,11 +135,16 @@ def _header_rows(environment: RunEnvironment, sr_device: str) -> dict[str, str]:
         "模型 scale": str(environment.model_scale),
         "SR tile 設定": f"任一邊 > {environment.tile_size} 時自動分塊（核心 {environment.tile_size}、halo 32）",
         "SR 線 device": sr_device,
-        "度量 device": f"{environment.metric_device}（bicubic 線恆為 Pillow 的 CPU 實作，不受此影響）",
+        "PSNR／SSIM device": (
+            "CPU、float64。輸入直接來自 Pillow 解碼，不搬到 GPU，因此這兩個指標的數值"
+            "**與執行裝置無關且可精確重現**"
+        ),
+        "LPIPS device": f"{environment.lpips_device}（bicubic 線的放大恆為 Pillow 的 CPU 實作，不受此影響）",
         "cudnn.benchmark": str(environment.cudnn_benchmark),
         "跨批次可比性": (
-            "CPU 與 GPU 的浮點結果不保證相同（TF32、cuDNN 演算法選擇），"
-            "**不同 device 的數字屬於不同批次，不可並列比較**"
+            "**受裝置影響的只有 SR 線與 LPIPS**：CPU 與 GPU 的浮點結果不保證相同"
+            "（TF32、cuDNN 演算法選擇），因此不同 device 的 SR 與 LPIPS 數字屬於不同批次，"
+            "不可並列比較。PSNR／SSIM 恆在 CPU float64 計算，跨裝置可比"
         ),
         "色彩空間與 data_range": "RGB 三通道、8-bit、`data_range = 255`；**不是 Y 通道**",
         "SSIM 參數": "Gaussian window 11×11、σ=1.5、K1=0.01、K2=0.03；三通道各自計算後取平均",
@@ -273,7 +279,7 @@ def describe_environment(
     discovered: int,
     selected: int,
     sr_line,
-    metric_device: str,
+    lpips_device: str,
 ) -> RunEnvironment:
     """Read the actual state of everything the header claims."""
     import lpips
@@ -314,7 +320,7 @@ def describe_environment(
         model_scale=sr_line.scale,
         tile_size=TILE_SIZE,
         sr_device=str(sr_line.device),
-        metric_device=metric_device,
+        lpips_device=lpips_device,
         cudnn_benchmark=torch.backends.cudnn.benchmark,
         lpips_version=version("lpips"),
         lpips_net="alex",

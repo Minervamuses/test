@@ -56,13 +56,14 @@ def main(argv=None) -> int:
     print(f"run directory : {run_dir}")
     print(f"sources       : {len(selected)} of {discovered} discovered in {arguments.input}")
 
-    # The SR line picks its own device through the unmodified pipeline; the
-    # metrics follow it so a single run never mixes devices.
+    # The SR line picks its own device through the unmodified pipeline and
+    # LPIPS follows it, so a run never mixes devices for the parts that depend
+    # on one. PSNR and SSIM stay on CPU float64 by construction.
     from sr_line import SuperResolutionLine
 
     sr_line = SuperResolutionLine()
     perceptual = PerceptualMetric(device=sr_line.device)
-    print(f"device        : {sr_line.device} (SR line and metrics)")
+    print(f"device        : {sr_line.device} (SR line and LPIPS; PSNR/SSIM always CPU float64)")
     print()
 
     def progress(index, total, name):
@@ -83,7 +84,7 @@ def main(argv=None) -> int:
         discovered=discovered,
         selected=len(selected),
         sr_line=sr_line,
-        metric_device=str(sr_line.device),
+        lpips_device=str(sr_line.device),
     )
     report_path = run_dir / "report.md"
     write_report(report_path, render_report(environment, results, failures, summary))

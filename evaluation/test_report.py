@@ -30,7 +30,7 @@ def _environment(run_dir):
         model_scale=4,
         tile_size=512,
         sr_device="cpu",
-        metric_device="cpu",
+        lpips_device="cpu",
         cudnn_benchmark=False,
         lpips_version="0.1.4",
         lpips_net="alex",
@@ -75,6 +75,10 @@ class ReportTests(unittest.TestCase):
         self.assertIn("0123456789abcdef0123456789abcdef01234567", self.text)
         self.assertIn(str(self.run_dir), self.text)
         self.assertIn("2026-09-19", self.text)
+
+    def test_the_header_separates_the_device_each_metric_runs_on(self):
+        self.assertIn("| PSNR／SSIM device | CPU、float64", self.text)
+        self.assertIn("| LPIPS device | cpu", self.text)
 
     def test_the_interpretation_caveats_are_not_omitted(self):
         self.assertIn("RGB", self.text)
