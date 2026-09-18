@@ -41,13 +41,14 @@ def _field(scores, name: str) -> float:
     return getattr(scores, name.lower())
 
 
-def _decide(name: str, sr_mean: float | None, bicubic_mean: float | None):
-    if sr_mean is None or bicubic_mean is None:
+def decide_winner(name: str, sr_value: float | None, bicubic_value: float | None):
+    """(winner, margin) for one metric. Used per image and for the averages."""
+    if sr_value is None or bicubic_value is None:
         return "n/a", None
-    if sr_mean == bicubic_mean:
+    if sr_value == bicubic_value:
         return "tie", 0.0
-    sr_ahead = sr_mean > bicubic_mean if HIGHER_IS_BETTER[name] else sr_mean < bicubic_mean
-    return ("SR" if sr_ahead else "bicubic"), abs(sr_mean - bicubic_mean)
+    sr_ahead = sr_value > bicubic_value if HIGHER_IS_BETTER[name] else sr_value < bicubic_value
+    return ("SR" if sr_ahead else "bicubic"), abs(sr_value - bicubic_value)
 
 
 def _summarise_metric(name: str, results) -> MetricSummary:
@@ -63,7 +64,7 @@ def _summarise_metric(name: str, results) -> MetricSummary:
     else:
         sr_mean = bicubic_mean = None
 
-    winner, margin = _decide(name, sr_mean, bicubic_mean)
+    winner, margin = decide_winner(name, sr_mean, bicubic_mean)
     return MetricSummary(
         name=name,
         higher_is_better=HIGHER_IS_BETTER[name],
