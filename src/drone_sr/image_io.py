@@ -9,12 +9,29 @@ from PIL import Image, ImageOps
 from torchvision.transforms.functional import pil_to_tensor, to_pil_image
 
 
+def _source_bits_per_sample(image: Image.Image, path: Path) -> int:
+    """Largest bits per sample in the file itself; image.mode is already mapped."""
+    if image.format == "TIFF":
+        return max(image.tag_v2.get(258, (8,)))
+    if image.format == "PNG":
+        with path.open("rb") as stream:
+            header = stream.read(26)
+        # Bit depth sits at a fixed offset in IHDR, the first chunk of every PNG.
+        return header[24] if header[12:16] == b"IHDR" else 8
+    return 8
+
+
 def read_image(path: Path) -> torch.Tensor:
     with Image.open(path) as image:
         if image.mode not in {"1", "L", "LA", "P", "RGB", "RGBA", "CMYK"}:
             raise ValueError(f"Unsupported image mode: {image.mode}")
         if getattr(image, "n_frames", 1) != 1:
             raise ValueError("Only single-frame images are supported")
+        # Before anything decodes: Pillow maps 16-bit colour onto RGB/RGBA and
+        # then truncates it to 8-bit, so by that point the evidence is gone.
+        bits = _source_bits_per_sample(image, path)
+        if bits > 8:
+            raise ValueError(f"Unsupported source bit depth: {bits} bits per sample")
         # After the checks above: exif_transpose() returns a plain Image whose
         # n_frames is always 1, which would silently disable the check above it.
         oriented = ImageOps.exif_transpose(image)
