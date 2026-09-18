@@ -63,7 +63,7 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 
 例如 `input/DJI_001.JPG` 對應 `output/DJI_001.png`。輸出不存在會建立；成功 PNG 完整寫入後才替換同名舊結果。來源與其 symlink／hard link 不可被當作輸出覆寫。預設資料夾相對於目前工作目錄，模型仍固定於原始專案內。
 
-啟動時自動選擇可用 CUDA，否則使用 CPU，並顯示 `Device`；CUDA 執行失敗會報錯，不會暗中改成 CPU 重跑大圖。大圖會自動分塊，記憶體與已驗證尺寸見下節；不會自動掃描影片或整個資料集。多頁 TIFF、高位深與浮點圖片會明確拒絕；普通圖片轉成 RGB，不保存 alpha、GIS 或其他 metadata。
+啟動時自動選擇可用 CUDA，否則使用 CPU，並顯示 `Device`；CUDA 執行失敗會報錯，不會暗中改成 CPU 重跑大圖。大圖會自動分塊，記憶體與已驗證尺寸見下節；不會自動掃描影片或整個資料集。多頁 TIFF、來源高位深（每通道超過 8-bit）與浮點圖片會明確拒絕；高位深依容器編碼判定（PNG 的 IHDR 位深、TIFF 的 `BitsPerSample`），不是只看解碼後的 Pillow mode，因此 16-bit 彩色也擋得住。普通圖片轉成 RGB；讀入時先依 EXIF Orientation 把方向校正到像素上，輸出 PNG 不保留方向標記，也不保存 alpha、GIS 或其他 metadata。
 
 缺輸入、輸出路徑是檔案、相同輸入／輸出目錄、缺模型或模型載入失敗會報錯並停止；空輸入顯示 `No supported images found in input/`（指定路徑則顯示該路徑）。檔名穩定排序、逐張處理，模型只載入一次。
 
@@ -128,6 +128,25 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 本機結果：[全圖預覽](<test-data/phase-04-tiling-20260917/full batch/full-preview.png>)、[完整 PNG（約118 MB）](<test-data/phase-04-tiling-20260917/full batch/output/a_full.png>)。來源、完整命令、尺寸、雜湊、裁切與結果為 `test-data/phase-04-tiling-20260917/` 下的 JSON／console，階段紀錄為 [build/build-log.md](build/build-log.md)。圖片／權重不納入 Git。
 
 驗收資料只來自使用者指定的單一 [WhaleDrone](https://huggingface.co/datasets/LucieLprt-Dvldr/WhaleDrone) MP4（資料集標示 CC-BY-NC-4.0），沒有下載 SRT 或其他影片。結果是海面場景，沒有鯨魚／道路／屋頂細節或配對高解析度真值驗證。V1 不含整段影片轉換、Docker、PSNR／SSIM、模型排名；未重新建立第二套乾淨環境驗證安裝。
+
+### 讀圖正確性修正（2026-09-18）
+
+`read_image()` 的兩個已重現缺陷已修正，兩者都會讓程式正常結束卻輸出與來源意義不符的內容：
+
+- **EXIF 方向未套用。** 現於 mode 與單影格檢查之後、轉 RGB 之前呼叫 `ImageOps.exif_transpose()`。八個 Orientation 值（JPEG 與帶 `eXIf` chunk 的 PNG）經 `read_image()` → `write_png()` 後，輸出**逐像素**等於正確結果；Orientation 2／3／4 尺寸不變但像素會錯，只比尺寸看不出來。TIFF 由 Pillow 自行處理，未被旋轉兩次。
+- **高位深拒絕不完整。** 原本只看 `image.mode`，而 Pillow 把 16-bit PNG colortype 2／4／6 與 16-bit RGB TIFF 映射成 `RGB`／`RGBA`，通過白名單後被靜默截成 8-bit（來源通道值 256／257／511 全變成 1）。現於任何解碼之前讀容器編碼，超過 8-bit 即以 `ValueError` 拒絕，該張記為 Failed 並繼續下一張。1／2／4-bit 與調色盤 PNG 是合法輸入，仍照常接受。
+- 完整 correctness suite **33／33 通過、無 skipped**（既有 29 ＋ 本次新增 4）。既有斷言未放寬；repo 內 34 張既有 8-bit 圖片經 `read_image()` → `write_png()` 的輸出位元組與修正前完全相同。
+- 真實小批次以正式 Compact 權重、真正 `python -m drone_sr` 執行（**CPU**，本輪環境 `torch.cuda.is_available()` 為 False）：同一張真實海面裁切分別做成無 EXIF 的 64×48 JPEG、真正的 16-bit RGB PNG，以及像素已旋轉並標記 Orientation 6 的 JPEG。結果 `Processed: 2`／`Failed: 1`／退出碼 1，16-bit 那張列出原因且未產生輸出檔，三張來源 SHA-256 不變。方向圖輸出為 256×192，與未旋轉參考圖同向（未修正時會是 192×256），兩者平均差 0.60／255，差異來自旋轉後重新 JPEG 編碼與模型非旋轉等變。
+
+已知限制（本次未處理，且不得視為已驗證）：
+
+- 本輪所有檢查在 **CPU** 執行，未在 GPU 上重跑；此修正只影響讀圖，與裝置無關，但沒有本輪的 GPU 觀察證據。
+- 位深檢查涵蓋 PNG 與 TIFF 兩種容器；JPEG 以基線 8-bit 處理，未驗證 12-bit JPEG。
+- 浮點圖片的拒絕來自兩條不同路徑：單通道 float（mode `F`）回報 `Unsupported image mode: F`；32-bit float **彩色** TIFF 則是 Pillow 連識別都失敗（`UnidentifiedImageError`），同樣記為該張 Failed，但訊息不是本程式發出的。
+- 未壓縮 TIFF ＋ Orientation 5–8 ＋ mode `L`／`P`／`RGBA`／`CMYK` 時，Pillow 會轉置像素緩衝區卻未更新 `size`，輸出既非原圖也非正確方向。這是上游缺陷，本次未處理；本專案實際輸入為 8-bit RGB，碰不到此路徑。
+- 輸出 PNG 權限為 `0600`（原子寫入使用 `tempfile.NamedTemporaryFile` 的副作用），本次未更動。
+
+本次修正的計劃、階段文件與完整觀察證據見 [fix/build-log.md](fix/build-log.md)。
 
 ```bash
 python -m pip check
