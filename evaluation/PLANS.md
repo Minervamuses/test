@@ -161,9 +161,9 @@ phase-04 要求每份 `report.md` 的標頭記錄 `git rev-parse HEAD`。配合�
 
 追回到「是哪一段程式、在哪個觀察證據下產生了這個數字」。這條鏈是本節規則存在的理由；任何讓它斷掉的 commit 方式都不符合要求。
 
-### 尚未提交的既有工作
+### 計劃 bundle 的提交狀態
 
-計劃 bundle（`evaluation/` 九個檔案）與 `.gitignore` 的一行修改目前**還在 worktree 未提交**。依上述規則，它們應是分開的兩顆：一顆 `docs:` 放 bundle，一顆 `chore:` 放 `.gitignore`。
+計劃 bundle 與 `.gitignore` 已於 2026-09-19 依上述規則分成兩顆提交：`7b995b8`（`docs:`，`evaluation/` 九個檔案）與 `4b87282`（`chore:`，`.gitignore` 的一行）。worktree 剩下的未追蹤項目只有十二個沙箱裝置檔，與本計劃無關，**不得清理或提交**。
 
 ## 階段路線圖
 
