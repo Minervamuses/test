@@ -1,5 +1,6 @@
 """Property checks for the hand-written SSIM under the fixed metric conventions."""
 
+import math
 import unittest
 
 import torch
@@ -78,6 +79,72 @@ class SsimTests(unittest.TestCase):
             ssim(_image(10, 64), _image(10, 64))
 
         self.assertIn("11", str(raised.exception))
+
+
+def _naive_ssim(first, second):
+    """A deliberately slow, independent re-derivation of the same definition.
+
+    scikit-image and torchmetrics are outside this plan's authorization, so no
+    third-party SSIM is available to compare against. This walks every 11x11
+    window explicitly in plain Python instead of convolving, and builds the
+    Gaussian straight from the isotropic 2-D formula rather than as an outer
+    product of a normalised 1-D kernel. It shares no code path with metrics.ssim
+    beyond the definition itself, so it catches the failure modes that matter
+    here: a mis-normalised window, wrong boundary handling, or averaging the
+    channels the wrong way. It is not independent evidence of the definition
+    being the right one - only that the fast implementation computes it.
+    """
+    weights = [
+        [math.exp(-(((i - 5) ** 2) + ((j - 5) ** 2)) / (2 * SSIM_SIGMA**2)) for j in range(SSIM_WINDOW)]
+        for i in range(SSIM_WINDOW)
+    ]
+    total = sum(sum(row) for row in weights)
+    weights = [[value / total for value in row] for row in weights]
+
+    c1 = (0.01 * 255.0) ** 2
+    c2 = (0.03 * 255.0) ** 2
+    left = first[0].to(torch.float64).tolist()
+    right = second[0].to(torch.float64).tolist()
+    height, width = len(left[0]), len(left[0][0])
+
+    channel_means = []
+    for channel in range(3):
+        window_values = []
+        for top in range(height - SSIM_WINDOW + 1):
+            for start in range(width - SSIM_WINDOW + 1):
+                mx = my = mxx = myy = mxy = 0.0
+                for i in range(SSIM_WINDOW):
+                    for j in range(SSIM_WINDOW):
+                        weight = weights[i][j]
+                        a = left[channel][top + i][start + j]
+                        b = right[channel][top + i][start + j]
+                        mx += weight * a
+                        my += weight * b
+                        mxx += weight * a * a
+                        myy += weight * b * b
+                        mxy += weight * a * b
+                variance_x = mxx - mx * mx
+                variance_y = myy - my * my
+                covariance = mxy - mx * my
+                window_values.append(
+                    ((2 * mx * my + c1) * (2 * covariance + c2))
+                    / ((mx * mx + my * my + c1) * (variance_x + variance_y + c2))
+                )
+        channel_means.append(sum(window_values) / len(window_values))
+    return sum(channel_means) / 3
+
+
+class SsimCrossCheckTests(unittest.TestCase):
+    def test_matches_a_naive_per_window_reference(self):
+        cases = (
+            ("random", _image(20, 24, seed=5), _image(20, 24, seed=6)),
+            ("smooth vs noisy", _smooth_image(20, 24), (_smooth_image(20, 24) + 12.0).clamp(0, 255)),
+            ("identical", _smooth_image(20, 24), _smooth_image(20, 24)),
+        )
+
+        for label, first, second in cases:
+            with self.subTest(case=label):
+                self.assertAlmostEqual(ssim(first, second), _naive_ssim(first, second), delta=1e-9)
 
 
 if __name__ == "__main__":
