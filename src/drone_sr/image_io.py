@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 from torchvision.transforms.functional import pil_to_tensor, to_pil_image
 
 
@@ -15,7 +15,10 @@ def read_image(path: Path) -> torch.Tensor:
             raise ValueError(f"Unsupported image mode: {image.mode}")
         if getattr(image, "n_frames", 1) != 1:
             raise ValueError("Only single-frame images are supported")
-        return pil_to_tensor(image.convert("RGB")).to(torch.float32).div_(255).unsqueeze(0)
+        # After the checks above: exif_transpose() returns a plain Image whose
+        # n_frames is always 1, which would silently disable the check above it.
+        oriented = ImageOps.exif_transpose(image)
+        return pil_to_tensor(oriented.convert("RGB")).to(torch.float32).div_(255).unsqueeze(0)
 
 
 def write_png(tensor: torch.Tensor, destination: Path, source: Path) -> None:
