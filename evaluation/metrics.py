@@ -15,10 +15,15 @@ property checks in test_psnr.py and test_ssim.py as their correctness evidence.
 from pathlib import Path
 
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from torchvision.transforms.functional import pil_to_tensor
 
 DATA_RANGE = 255.0
+SSIM_WINDOW = 11
+SSIM_SIGMA = 1.5
+SSIM_K1 = 0.01
+SSIM_K2 = 0.03
 
 
 def to_metric_tensor(image: Image.Image) -> torch.Tensor:
@@ -54,3 +59,46 @@ def psnr(first: torch.Tensor, second: torch.Tensor) -> float:
     if mse.item() == 0.0:
         return float("inf")
     return float(10.0 * torch.log10(DATA_RANGE**2 / mse))
+
+
+def _gaussian_window(device: torch.device, dtype: torch.dtype) -> torch.Tensor:
+    offsets = torch.arange(SSIM_WINDOW, device=device, dtype=dtype) - (SSIM_WINDOW - 1) / 2
+    line = torch.exp(-(offsets**2) / (2 * SSIM_SIGMA**2))
+    line = line / line.sum()
+    return torch.outer(line, line)
+
+
+def ssim(first: torch.Tensor, second: torch.Tensor) -> float:
+    """Wang et al. SSIM: 11x11 Gaussian window, sigma 1.5, K1 0.01, K2 0.03.
+
+    Boundary handling is 'valid' - the window is never padded, so the SSIM map is
+    (H-10) x (W-10) and no edge value is computed from invented pixels. Variances
+    are the Gaussian-weighted (biased) estimates of the original formulation, not
+    scikit-image's sample-covariance correction. Each channel is measured on its
+    own and the three results are averaged.
+    """
+    _validate(first, second)
+    height, width = first.shape[-2:]
+    if height < SSIM_WINDOW or width < SSIM_WINDOW:
+        raise ValueError(f"Images must be at least {SSIM_WINDOW}x{SSIM_WINDOW}, got {height}x{width}")
+
+    x = first.to(torch.float64)
+    y = second.to(torch.float64)
+    window = _gaussian_window(x.device, x.dtype).expand(3, 1, SSIM_WINDOW, SSIM_WINDOW)
+
+    def filtered(tensor: torch.Tensor) -> torch.Tensor:
+        return F.conv2d(tensor, window, groups=3)
+
+    mu_x, mu_y = filtered(x), filtered(y)
+    mu_x2, mu_y2, mu_xy = mu_x * mu_x, mu_y * mu_y, mu_x * mu_y
+    sigma_x2 = filtered(x * x) - mu_x2
+    sigma_y2 = filtered(y * y) - mu_y2
+    sigma_xy = filtered(x * y) - mu_xy
+
+    c1 = (SSIM_K1 * DATA_RANGE) ** 2
+    c2 = (SSIM_K2 * DATA_RANGE) ** 2
+    numerator = (2 * mu_xy + c1) * (2 * sigma_xy + c2)
+    denominator = (mu_x2 + mu_y2 + c1) * (sigma_x2 + sigma_y2 + c2)
+
+    per_channel = (numerator / denominator).mean(dim=(0, 2, 3))
+    return float(per_channel.mean())
