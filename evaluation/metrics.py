@@ -38,7 +38,8 @@ def load_metric_tensor(path: Path) -> torch.Tensor:
         return to_metric_tensor(image)
 
 
-def _validate(first: torch.Tensor, second: torch.Tensor) -> None:
+def validate_pair(first: torch.Tensor, second: torch.Tensor) -> None:
+    """Shared by every metric: same RGB BCHW shape, or an error naming the shapes."""
     for tensor in (first, second):
         if tensor.ndim != 4 or tensor.shape[0] != 1 or tensor.shape[1] != 3:
             raise ValueError(f"Expected RGB BCHW input, got shape {tuple(tensor.shape)}")
@@ -54,7 +55,7 @@ def psnr(first: torch.Tensor, second: torch.Tensor) -> float:
     float64 throughout: the squared error over a 4056x3040 image accumulates far
     past float32's exact-integer range, so float32 would quietly lose precision.
     """
-    _validate(first, second)
+    validate_pair(first, second)
     mse = torch.mean((first.to(torch.float64) - second.to(torch.float64)) ** 2)
     if mse.item() == 0.0:
         return float("inf")
@@ -77,7 +78,7 @@ def ssim(first: torch.Tensor, second: torch.Tensor) -> float:
     scikit-image's sample-covariance correction. Each channel is measured on its
     own and the three results are averaged.
     """
-    _validate(first, second)
+    validate_pair(first, second)
     height, width = first.shape[-2:]
     if height < SSIM_WINDOW or width < SSIM_WINDOW:
         raise ValueError(f"Images must be at least {SSIM_WINDOW}x{SSIM_WINDOW}, got {height}x{width}")
