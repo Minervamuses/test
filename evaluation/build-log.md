@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|
 | 01 — 固定退化契約與 bicubic 基線 | Complete | 2026-09-19 | 2026-09-19 | 24 項檢查通過；真實樣本尺寸鏈 4056×3040 → 1014×760 → 4056×3040；bicubic 與獨立重算逐位元相同 | 無 |
 | 02 — 度量模組與 lpips 依賴 | Complete | 2026-09-19 | 2026-09-19 | 52 項檢查通過；PSNR 48.1308 dB 對上手算；SSIM 與 naive 參考差 ≤1.3e-15；LPIPS 同圖 0.0 | 無（兩項 GPU 量測列入「待 GPU 補測」） |
-| 03 — SR 線接上未修改的 pipeline | In progress | 2026-09-19 | — | — | 無 |
+| 03 — SR 線接上未修改的 pipeline | Complete | 2026-09-19 | 2026-09-19 | 60 項檢查通過；真實樣本 SR 輸出 4056×3040 等同真值；drone_sr 五個檔雜湊未變 | 無（一項 GPU 量測列入「待 GPU 補測」） |
 | 04 — 執行器、run 目錄與逐張＋平均報告 | Not started | — | — | — | 無 |
 | 05 — 真實小樣本驗收、成本量測與文件對齊 | Not started | — | — | — | 無 |
 
@@ -42,6 +42,7 @@
 |---|---|---|---|---|---|
 | 1 | 02 | LPIPS 對一張 4056×3040 真值與其 bicubic 版本的耗時、峰值 RSS、**峰值 VRAM**、device 名稱 | 沙箱 session 看不到 GPU（`/dev/dxg` 不存在、`torch.cuda.is_available()` 為 `False`），量到的是 CPU 數字 | phase-02「真實尺寸的 LPIPS 耗時、峰值 RSS 與峰值 VRAM 已在交付裝置上實測並記錄」 | 待補 |
 | 2 | 02 | 同一組輸入連跑兩次，LPIPS 在 **GPU 上**數值完全相同，且 `torch.backends.cudnn.benchmark` 為 `False` | 同上。CPU 的決定性結果不能代表 GPU 路徑（TF32、cuDNN 演算法選擇） | phase-02「同一決定性檢查已在 GPU 上通過且設了 `cudnn.benchmark = False`」 | 待補 |
+| 3 | 03 | SR 線在 GPU 上的單張端到端耗時、峰值 RSS、**峰值 VRAM**、device 名稱（LR 1014×760 → SR 4056×3040） | 沙箱 session 看不到 GPU，量到的是 CPU 數字 | phase-03「交付裝置（GPU）上的單張耗時、峰值 RSS 與峰值 VRAM 已量測」 | 待補 |
 
 狀態只用：`待補`、`已補（使用者 shell）`。已補的項目要在「活動紀錄」有對應的一筆，寫明確切命令、輸出與量測環境。
 
@@ -212,6 +213,35 @@
 - **阻塞：** 無。
 - **下一步：** 先寫失敗檢查（倍率斷言、尺寸對齊、輸入來源），再分兩顆實作。
 - **證據位置：** 本筆記錄；commit 見本階段 close 記錄的清單。
+
+## 2026-09-19 02:12 (CST) — Phase 03: close
+
+- **狀態：** `In progress` → `Complete`
+- **授權範圍：** [phases/phase-03-sr-line.md](phases/phase-03-sr-line.md)。
+- **變更：** 新增 `evaluation/sr_line.py` 與 `evaluation/test_sr_line.py`。**沒有任何 commit 修改 `src/drone_sr/**`。**
+- **驗證（聚焦，實際觀察）：** `TORCH_HOME=$TMPDIR/torch-home .venv/bin/python -m unittest discover -s evaluation` → **`Ran 60 tests` `OK`**（24 + 28 + 8）。`.venv/bin/python -m unittest discover -s tests` → **`Ran 33 tests` `OK`**。
+  - **更正：** commit `fea3911` 的 body 誤記為「61 tests」，實際為 **60**。依 `PLANS.md`「不得用 `--amend` 改寫歷史」，在此以新記錄更正，不改該顆 commit。
+- **三項必要檢查（實際觀察）：**
+  1. **倍率斷言：** 以 scale 為 2／3／8 的 stub descriptor 取代 `load_model`，三種皆拋 `ValueError`，訊息同時含期望值 `4` 與實際值。不是靜默繼續。
+  2. **尺寸對齊：** 合成 LR 50×25 → SR 200×100，與 mod-crop 後真值尺寸相同。另檢查給錯 expected size 時拋錯而非縮放。
+  3. **輸入來源：** 覆寫 LR PNG 後重跑，SR 輸出位元組不同 → SR 線讀的是磁碟上的 LR 檔。
+- **descriptor（實際觀察）：** `RealESRGAN Compact`、`scale = 4`、`purpose = SR`、`3 → 3`、`tiling = ModelTiling.SUPPORTED`、`device = cpu`、`dtype = torch.float32`。模型只在 `SuperResolutionLine.__init__` 載入一次，逐張重用。
+- **驗證（較廣，真實資料）：** run 目錄 `evaluation/runs/20260918T180259Z/`，`input/` 前兩張。
+  - 尺寸：hr `(4056, 3040)`、lr `(1014, 760)`、bicubic `(4056, 3040)`、sr `(4056, 3040)`。**SR 輸出尺寸等於真值，未經任何補縮放。**
+  - **兩條線輸入同一檔案的直接證據：** `lr/DJI_20230127115759_0001_W.png` 的 SHA-256 為 `8ed6a0920044b58f...`，與 phase-01 run（`20260918T171502Z`）產生的同名檔**完全相同**，顯示退化流程跨 run 可重現；bicubic 線與 SR 線在本次 run 中都只讀這一個檔。
+  - 八個中間檔檔頭皆為 `89504e470d0a1a0a`。
+  - **目視檢查（實際看過）：** 取 `(1800, 1300, 2120, 1540)` 的 320×240 區域，以 100% 疊成 hr／bicubic／sr 對照圖檢視。SR 輸出是正常照片，**不是噪點、不是全黑、色彩正常**，且明顯比 bicubic 銳利。同時觀察到：SR 的細節是**重建**而非還原——浪花被畫成清晰的斑點，但斑點位置與真值的浪花不吻合，並有輕微色偏（SR 通道均值 `68.12 / 146.59 / 154.43` 對真值的 `67.04 / 145.31 / 151.71`）。通道標準差：真值 `61.17 / 34.84 / 32.99`、bicubic `55.74 / 27.11 / 24.88`、SR `61.26 / 30.54 / 25.72`。
+    - **這正是 `GOALS.md`「已知會影響結論解讀的性質」預測的行為**（GAN 模型在乾淨 bicubic 退化上重建紋理），是評估設定的已知性質，不是實作錯誤。它**加強**了「PSNR／SSIM 可能輸給 bicubic、LPIPS 勝出」的預期。未推翻任何計劃假設，因此未建立 `context/phase-03-context.md`。
+- **資源（量測環境：沙箱 session、CPU）：** 每張端到端 `16.33` 秒與 `15.96` 秒，拆解為退化 `2.24`／`2.34` 秒、bicubic `2.30`／`2.45` 秒、**SR `11.78`／`11.17` 秒**。整個程序峰值 RSS **1268 MiB**。
+  - **對小樣本規模的建議（依 CPU 數字，保守上界）：** 加上 LPIPS 的 4.74 秒與 PSNR／SSIM，單張約 21–22 秒。十分鐘的授權上限對應約 **27 張**；GPU 上會更快。phase-04 的預設樣本上限應據此設定，並在交付裝置上重新量測後調整。
+- **不變式（實際觀察）：** 761 筆雜湊清單 `diff` 完全相同；`src/drone_sr/*.py` 五個檔的 SHA-256 與 preflight 逐一相同（`image_io.py` `655b0da5…`、`inference.py` `87a4aada…`、`tiling.py` `faecfa0a…`、`__main__.py` `5da7a2de…`、`__init__.py` `f1d2e09e…`）；`git status --short src tests pyproject.toml requirements-wsl.txt models` **為空**；`output/` 未被寫入。
+- **限制：**
+  - 所有耗時與記憶體為**沙箱 CPU** 數字，不是交付環境。GPU 上的同一組量測列入「待 GPU 補測」第 3 項。
+  - 逐張失敗隔離只做到「`run()` 拋出帶來源檔名的明確錯誤」；**包住它的 try／except 迴圈屬於 phase-04 的執行器**（見本階段文件「交接」：批次執行屬 phase-04）。
+  - 目視檢查只看了一張影像的一個區域，不是全量品質評估。
+- **阻塞：** 無。推遲的只有 GPU 資源數字（協定三類之一），沒有正確性檢查被推遲。
+- **下一步：** phase-04（執行器、run 目錄與逐張＋平均報告）。依賴 01、02、03 全部 `Complete`。
+- **證據位置：** 本筆記錄；run 目錄 `evaluation/runs/20260918T180259Z/`（未進版本控制）。本階段 commit 依序為 `c2c0e26`（`docs:` start）、`15e5431`（`test:` red）、`3800815`（`feat:` descriptor 與倍率斷言）、`fea3911`（`feat:` 從 LR PNG 執行 SR），close 記錄本身另成一顆。
 
 <!-- 追加重要事件時用這個格式：
 
