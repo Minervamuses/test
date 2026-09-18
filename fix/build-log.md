@@ -7,7 +7,7 @@
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻礙 |
 |---|---|---|---|---|---|
 | 01 — EXIF 方向正確套用 | Complete | 2026-09-18 11:52 CST | 2026-09-18 12:06 CST | 本檔活動紀錄；commits `01b982b`、`534e6eb` | 無 |
-| 02 — 來源位深明確拒絕 | Not started | — | — | — | 無 |
+| 02 — 來源位深明確拒絕 | Complete | 2026-09-18 12:10 CST | 2026-09-18 12:24 CST | 本檔活動紀錄；commits `ea59e25`、`982cc91` | 無 |
 | 03 — 文件對齊與整體驗收 | Not started | — | — | — | 無 |
 
 只使用 `Not started`、`In progress`、`Blocked`、`Complete`。`Complete` 必須有全部必要 acceptance 與檢查的觀察證據。
@@ -88,3 +88,51 @@
 - **阻礙：** 無。
 - **下一步：** phase-02（依賴 01，現已 Complete）。位深檢查須排在 `exif_transpose()` 之前，理由見 11:52 CST 該筆紀錄。
 - **證據位置：** 本檔；commits `01b982b`（Red）、`534e6eb`（Green）；`$TMPDIR/roundtrip-{before,after}.txt`（session 暫存，非專案檔）。
+
+### 2026-09-18 12:24 CST — Phase 02：來源位深檢查完成並驗收
+
+- **狀態：** Not started → In progress → Complete（前置 phase-01 為 Complete）
+- **授權依據：** [phase-02](phases/phase-02-source-bit-depth.md)。
+- **實際變更：**
+  - `src/drone_sr/image_io.py`：新增模組層級 helper `_source_bits_per_sample()`（`image_io.py:12-22`），並在 `read_image()` 內 `image_io.py:31-33` 加入檢查。commit `982cc91`。
+  - `tests/test_image_io.py`：擴充既有 `test_high_bit_depth_is_rejected_explicitly`（**保留原本的 `I;16` 灰階斷言一字未改**，在其後追加彩色案例），新增 `test_low_bit_depth_sources_stay_accepted`，以及 fixture helper `_write_png()`／`_write_tiff()`。commit `ea59e25`。
+- **所採偵測方式與理由：** 依 PLANS.md 建議採**容器層級**，不用 Pillow 內部屬性。TIFF 讀 `image.tag_v2.get(258)`（`BitsPerSample`，open 當下即可得）取最大值；PNG 直接讀檔案前 26 bytes，取 IHDR 第 24 個位元組（PNG 規格固定位置），並以 `header[12:16] == b"IHDR"` 防護。其餘容器（JPEG 等）回傳 8，不額外檢查。查核 `.venv/.../PIL/PngImagePlugin.py:69-91` 的 `_MODES` 表確認 Pillow **沒有**公開的 PNG 位深屬性，且該表就是破口來源：`(16,2)→RGB`、`(16,4)→RGBA`、`(16,6)→RGBA` 全部落入既有白名單，只有 `(16,0)→I;16` 會被擋。
+- **插入順序與理由（實測決定）：** 置於 mode 白名單與 `n_frames` **之後**、`exif_transpose()` **之前**。
+  - 在 mode 檢查之後：維持既有錯誤訊息優先序，16-bit 灰階仍回報 `Unsupported image mode: I;16`，既有測試斷言因此無須放寬。
+  - 在 `exif_transpose()` 之前：後者第一行呼叫 `image.load()`，解碼後位深事實已遺失。
+  - **前置性為實測，不是推論：** 以 `unittest.mock.patch` 把 `Image.Image.load` 換成拋 `AssertionError` 後，四個 16-bit 來源仍全部回報 `ValueError: Unsupported source bit depth: 16 bits per sample`，沒有任何一個走到 `load()`。
+- **fixture 來源編碼的獨立確認（非假設）：** Pillow 無法存出 16-bit 彩色 PNG 或 TIFF，因此以 `struct`＋`zlib` 手寫 PNG chunk、手寫單 strip little-endian TIFF IFD（僅測試 fixture，非正式依賴）。測試中回頭解析 PNG 檔案的 `raw[24]`／`raw[25]` 斷言為 `(16, colortype)`，TIFF 則以 `Image.open(...).tag_v2.get(258) == (16, 16, 16)` 斷言。
+- **接受／拒絕對照表（修正後實測，`$TMPDIR/probe02.py`；16-bit 來源通道值為 256／257／511）：**
+
+  | 容器 × 編碼 | Pillow mode | 修正前 | 修正後 |
+  |---|---|---|---|
+  | PNG bitdepth=16 colortype=2 | `RGB` | 靜默接受，截成 `[1,1,1]` | `ValueError: Unsupported source bit depth: 16 bits per sample` |
+  | PNG bitdepth=16 colortype=4 | `RGBA` | 靜默接受，截成 `[1,1,1]` | 同上（拒絕） |
+  | PNG bitdepth=16 colortype=6 | `RGBA` | 靜默接受，截成 `[1,1,1]` | 同上（拒絕） |
+  | PNG bitdepth=16 colortype=0 | `I;16` | `Unsupported image mode: I;16` | 不變（仍由 mode 檢查擋下） |
+  | TIFF `BitsPerSample=(16,16,16)` | `RGB` | 靜默接受，截成 `[1,1,1]` | `ValueError: Unsupported source bit depth: 16 bits per sample` |
+  | PNG bitdepth=1／2／4 colortype=0 | `1`／`L`／`L` | 接受 | **仍接受**（未誤擋） |
+  | PNG colortype=3（調色盤） | `P` | 接受，`[255,0,0]` | **仍接受且無損** |
+  | PNG bitdepth=8 colortype=2 | `RGB` | 接受，`[10,20,30]` | **仍接受且無損** |
+  | TIFF `BitsPerSample=(8,8,8)` | `RGB` | 接受，`[10,20,30]` | **仍接受且無損** |
+
+- **未解問題結案 —— 32-bit float 彩色 TIFF：** 本階段成功手寫合法 fixture（`BitsPerSample=(32,32,32)`、`SampleFormat=(3,3,3)`、3 samples）。實測 **Pillow 在 `Image.open()` 階段就無法辨識**：`UnidentifiedImageError: cannot identify image file`（`OSError` 子類）。因此它根本到不了 mode 檢查，也到不了新的位深檢查，但**確實不會被靜默接受**；CLI 既有 `except Exception` 會記為該張 Failed。GOALS.md 的此項未解問題至此結案：**浮點彩色 TIFF 不會被靜默處理，但拒絕來自 Pillow 無法解析，訊息不是本專案的 `Unsupported image mode`**。phase-03 的 README 敘述必須反映這個差別，不得籠統宣稱「浮點一律以 `Unsupported image mode` 拒絕」。
+- **驗證：**
+  - **Red（修正前）：** `.venv/bin/python -m unittest discover -s tests -p 'test_image_io.py'` → `FAILED (failures=4)`（PNG colortype 2／4／6 與 16-bit RGB TIFF，皆為 `ValueError not raised`）。`test_low_bit_depth_sources_stay_accepted` 於修正前即通過，作為誤擋守門。
+  - **Green：** focused → `Ran 11 tests ... OK`；較廣 `.venv/bin/python -m unittest discover -s tests` → **`Ran 33 tests ... OK`**（既有 29 ＋ phase-01 新增 3 ＋ phase-02 新增 1）。
+  - **既有 8-bit 真實圖片未回歸：** 34 張 repo 圖片 `read_image()` → `write_png()` 的輸出 SHA-256 與 **phase-01 之前**的基線 34/34 完全相同。
+  - **CLI 端到端（真實模型，`models/model.pth` → `realesr-general-x4v3.pth` Compact）：**
+    ~~~text
+    .venv/bin/python -m drone_sr --input $TMPDIR/cli02/input --output $TMPDIR/cli02/output
+    Device: cpu / Model: loaded / Images: 3
+    [1/3] a_good.png
+    [2/3] b_high.png — Failed: Unsupported source bit depth: 16 bits per sample
+    [3/3] c_oriented.jpg
+    Processed: 2 / Failed: 1 / 退出碼 1（約 3.1 s）
+    ~~~
+    輸入為真實 32×24 8-bit 裁切（取自 `input/whaledrone_seek10s_x1536_y768_512.png`）、手寫 16-bit RGB PNG、Orientation 6 的 32×16 JPEG。輸出僅 `a_good.png`（128×96）與 `c_oriented.png`（**64×128**，即先校正為 16×32 再 ×4；未修正前會是 128×64），16-bit 那張**沒有產生任何輸出檔**。三個來源檔 `sha256sum -c` 全部 `OK`。
+- **驗收條件對照：** 16-bit PNG ct2／4／6 拒絕 ✅／16-bit RGB TIFF 拒絕 ✅／fixture 位深獨立確認 ✅／1／2／4／8-bit 與調色盤仍接受且無損 ✅／16-bit 灰階、float、多頁 TIFF 既有拒絕仍有效 ✅（float 彩色 TIFF 之機制差異見上）／phase-01 方向未回歸 ✅（33 測試全過＋CLI 64×128）／CLI 端到端 ✅／既有測試未放寬 ✅。
+- **限制：** 位深檢查只涵蓋 PNG 與 TIFF 兩種容器；JPEG 以基線 8-bit 處理，未驗證 12-bit JPEG（Pillow 預設不支援，且不在本次範圍）。CLI 驗收在 **CPU** 執行（本機 `torch.cuda.is_available()` 為 False），GPU 路徑未於本階段驗證。
+- **阻礙：** 無。
+- **下一步：** phase-03（依賴 01、02，均已 Complete）：README 對齊、整體驗收、真實批次。
+- **證據位置：** 本檔；commits `ea59e25`（Red）、`982cc91`（Green）；`$TMPDIR/probe02.py`、`$TMPDIR/predecode.py`、`$TMPDIR/cli02/`（session 暫存，非專案檔）。
