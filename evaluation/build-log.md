@@ -6,7 +6,7 @@
 
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻塞 |
 |---|---|---|---|---|---|
-| 01 — 固定退化契約與 bicubic 基線 | Not started | — | — | — | 無 |
+| 01 — 固定退化契約與 bicubic 基線 | In progress | 2026-09-19 | — | — | 無 |
 | 02 — 度量模組與 lpips 依賴 | Not started | — | — | — | 無 |
 | 03 — SR 線接上未修改的 pipeline | Not started | — | — | — | 無 |
 | 04 — 執行器、run 目錄與逐張＋平均報告 | Not started | — | — | — | 無 |
@@ -89,6 +89,28 @@
 - **阻塞：** 無。
 - **下一步：** 提交計劃 bundle 與 `.gitignore`，然後開始 phase-01（不需 GPU，沙箱內可完整執行）。
 - **證據位置：** 本筆記錄。本次修訂的內容隨計劃 bundle 一併提交於 `7b995b8`。
+
+## 2026-09-19 01:09 (CST) — Phase 01: preflight
+
+- **狀態：** `Not started` → `In progress`
+- **授權範圍：** [phases/phase-01-degradation-and-bicubic.md](phases/phase-01-degradation-and-bicubic.md)「實作與驗證計劃 / Preflight」。
+- **本階段範圍（複述）：** 原圖探索（`input/` 直接子項的 png／jpg／jpeg，忽略子資料夾與其他副檔名）、原圖解碼（`Image.open` → 第一影格 → `exif_transpose` → `convert("RGB")`、>8-bit 略過）、mod-crop 到 4 的倍數、`BICUBIC` 降採樣成 LR PNG、**從磁碟上的 LR PNG** `BICUBIC` 放大回真值尺寸、建立一個新的 run 目錄。
+- **非目標（複述）：** 不做 SR、不算度量、不裝依賴、不做報告與平均、不做 run 目錄防覆蓋規則、不動 `src/drone_sr/**`。
+- **停止條件（複述）：** 若尺寸對齊必須靠第二次縮放，停止回報；若需修改 `src/drone_sr/**`，停止回報。
+- **驗證（實際觀察）：**
+  - `.venv/bin/python -c "import sys, PIL, torch, numpy; ..."` → Python `3.12.3`、Pillow `12.3.0`、torch `2.11.0+cu128`、numpy `2.5.3`、`torch.cuda.is_available()` → `False`。**量測環境：沙箱 session**；依 `GOALS.md`「授權限制」，`False` 是沙箱狀態，不是本機能力。本階段不需要 GPU。
+  - `input/` 直接子項 744 個、無子資料夾（`find input -mindepth 1 -maxdepth 1 -type d | wc -l` → `0`）；副檔名分佈 `738 jpg`、`4 json`、`2 txt`、**0 png**。與 `PLANS.md`「已確認基線」一致。
+  - `output/` 現況：`.gitkeep` 與 `whaledrone_seek10s_x1536_y768_512.png`（既有 SR 產物，不得更動）。
+  - 基線雜湊清單（761 筆，涵蓋 `input/`、`output/`、`models/`、`src/**.py`、`tests/**.py`、`pyproject.toml`、`requirements-wsl.txt`）已存於 `$TMPDIR/baseline/manifest-before.txt`，供本階段結束時比對。
+  - `git status --short` → 僅十二個沙箱裝置檔（`.bashrc`、`.claude/`、`.mcp.json` 等），與 `PLANS.md`「計劃 bundle 的提交狀態」記載一致，**不清理、不提交**。`HEAD` = `507f2a9`，分支 `main`。
+  - `drone_sr` 以 editable 安裝於 `.venv`（`__editable__.drone_sr-0.1.0.pth`），任意工作目錄皆可 import，評估工具不需要調整 `sys.path`。
+- **preflight 的實質發現（真實 MPO 的影格順序）：** 對 `input/DJI_20230127115759_0001_W.JPG` 實測 `n_frames = 2`，**frame 0 為 4056×3040 主圖、frame 1 為 960×720 縮圖**。因此 `GOALS.md` 退化契約第 1 條的「取第一影格」在這批資料上取到的是全解析度主圖，契約可照字面執行，不需要 `context/phase-01-context.md` 的例外處理。
+- **解決 Unresolved（測試命令）：** 採用 `.venv/bin/python -m unittest discover -s evaluation`。已實測 unittest discovery 不會遞迴進入非 package 的子目錄（`$TMPDIR/dprobe` 探測：`sub/test_nested.py` 未被收集），因此 `evaluation/runs/`、`evaluation/phases/` 不會被掃到。評估檢查一律放在 `evaluation/` 之下，**不進入專案既有的 `tests/`**，也不用 `tests/` 的既有命令去掃評估程式。
+- **Unresolved（維持）：** `input/` 仍為 0 張 PNG，PNG 原圖路徑只能以合成 fixture 驗證；結束時須記明「PNG 原圖僅以合成 fixture 驗證，尚未在真實 PNG 資料上執行」。
+- **限制：** 本筆為唯讀 preflight，尚無任何實作或評估產物。
+- **阻塞：** 無。
+- **下一步：** 依 phase-01「Commit 切點」先提交定義驗收的檢查（red），再分四顆實作。
+- **證據位置：** 本筆記錄。觀察時的 `HEAD` = `507f2a9`。本筆隨 `docs: start phase 01` 提交，該顆與本階段其餘 commit 的 hash 於 close 記錄一併列出（沿用 `507f2a9` 的既有做法，不用 `--amend` 回填）。
 
 <!-- 追加重要事件時用這個格式：
 
