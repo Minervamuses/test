@@ -9,7 +9,7 @@
 | 01 — 固定退化契約與 bicubic 基線 | Complete | 2026-09-19 | 2026-09-19 | 24 項檢查通過；真實樣本尺寸鏈 4056×3040 → 1014×760 → 4056×3040；bicubic 與獨立重算逐位元相同 | 無 |
 | 02 — 度量模組與 lpips 依賴 | Complete | 2026-09-19 | 2026-09-19 | 52 項檢查通過；PSNR 48.1308 dB 對上手算；SSIM 與 naive 參考差 ≤1.3e-15；LPIPS 同圖 0.0 | 無（兩項 GPU 量測列入「待 GPU 補測」） |
 | 03 — SR 線接上未修改的 pipeline | Complete | 2026-09-19 | 2026-09-19 | 60 項檢查通過；真實樣本 SR 輸出 4056×3040 等同真值；drone_sr 五個檔雜湊未變 | 無（一項 GPU 量測列入「待 GPU 補測」） |
-| 04 — 執行器、run 目錄與逐張＋平均報告 | In progress | 2026-09-19 | — | — | 無 |
+| 04 — 執行器、run 目錄與逐張＋平均報告 | Complete | 2026-09-19 | 2026-09-19 | 94 項檢查通過；3 張真實樣本 report.md 完整；連跑兩次舊 run 逐位元未變 | 無 |
 | 05 — 真實小樣本驗收、成本量測與文件對齊 | Not started | — | — | — | 無 |
 
 狀態只用：`Not started`、`In progress`、`Blocked`、`Complete`。
@@ -263,6 +263,46 @@
 - **阻塞：** 無。
 - **下一步：** 依「Commit 切點」分四顆實作：run 目錄配置、批次執行、平均、報告。
 - **證據位置：** 本筆記錄；commit 見本階段 close 記錄的清單。
+
+## 2026-09-19 02:35 (CST) — Phase 04: close
+
+- **狀態：** `In progress` → `Complete`
+- **授權範圍：** [phases/phase-04-runner-and-report.md](phases/phase-04-runner-and-report.md)。
+- **變更：** 新增 `evaluation/runner.py`、`summary.py`、`report.py`、`run_evaluation.py`（CLI），擴充 `runs.py`；四個新檢查模組。修正 `metrics.py` 的 SSIM 記憶體用量。新增 `context/phase-04-context.md`，並據新證據更新 `PLANS.md`「資源」與 `phases/phase-05`。
+- **驗證（聚焦，實際觀察）：** `TORCH_HOME=$TMPDIR/torch-home .venv/bin/python -m unittest discover -s evaluation` → **`Ran 94 tests` `OK`**。`.venv/bin/python -m unittest discover -s tests` → **`Ran 33 tests` `OK`**，每顆 commit 後皆重跑。
+- **五項必要檢查（實際觀察）：**
+  1. **不覆蓋舊紀錄：** 連跑兩次 → `evaluation/runs/20260918T181724Z`（3 張）與 `evaluation/runs/20260918T182231Z`（1 張）。第二次之後，第一次的 **13 個檔案在大小、mtime 與 SHA-256 三項上全部相同**（`find -printf '%p %s %T@'` 加 `sha256sum` 的快照 `diff` 無差異）。
+  2. **同名目錄：** 單元檢查以真實檔案系統驗證：同一時刻連續配置三次 → `20260919T023000Z`、`20260919T023000Z-2`、`20260919T023000Z-3`；先寫入第一個目錄的 `report.md` 在之後兩次配置後內容與 `mtime_ns` 未變；預先存在、內含外來檔案的同名目錄不被寫入，配置器跳到 `-2`。
+  3. **單張失敗隔離：** `good1`／`bad`／`good2` 批次，模型拒絕 `bad` → 回傳 good1 與 good2 的成績，`bad` 進失敗清單（stage `sr`、原因為模型自己的訊息），批次未中斷；16-bit PNG 混入批次 → stage `decode`、原因含位深，其他圖照常量測。
+  4. **PSNR `inf`：** 端到端以純色圖驗證——常數影像經降採樣與 bicubic 放大後完全相同，bicubic 線 PSNR 為 `inf`、SSIM 為 1.0（±1e-6）。平均層以 fixture 驗證：該張**只**被排除於 PSNR 平均（`counted 1`、`excluded_infinite 1`），SSIM／LPIPS 仍納入兩張；任一線 `inf` 即排除；全部 `inf` 時 `counted 0`、平均為 `None`、勝方 `n/a`，不編造數字。
+  5. **報告完整性：** 33 個必填標頭欄位逐一以正規式檢查存在且非空；`render_report` 在缺欄時直接拋錯。逐張列數等於成功張數，平均列存在，失敗清單含環節與原因。`grep -E "\| *\||None|nan|NaN"` 在真實報告上**無命中**。
+- **驗證（較廣，真實資料）：** `\.venv/bin/python evaluation/run_evaluation.py --limit 3`，run 目錄 `evaluation/runs/20260918T181724Z`，3 張、0 排除，耗時 256.5 秒。
+  - **逐張（量測環境：沙箱 session、CPU）：**
+    | 檔名 | SR PSNR | bic PSNR | SR SSIM | bic SSIM | SR LPIPS | bic LPIPS |
+    |---|---|---|---|---|---|---|
+    | `…0001_W.JPG` | 21.7416 | 22.0661 | 0.600584 | 0.599409 | 0.367362 | 0.543673 |
+    | `…0002_W.JPG` | 21.9362 | 22.2449 | 0.598002 | 0.598057 | 0.364103 | 0.547136 |
+    | `…0003_W.JPG` | 21.9264 | 22.2477 | 0.593815 | 0.594244 | 0.362619 | 0.548625 |
+  - **平均：** PSNR SR `21.8681` vs bicubic `22.1862` → **bicubic 勝**（差 0.3182）；SSIM SR `0.597467` vs bicubic `0.597237` → SR 勝（差 **0.000230**，逐張為 1 勝 2 負，此差距不具實質意義）；LPIPS SR `0.364695` vs bicubic `0.546478` → **SR 勝**（差 0.181784）。
+  - **這正是 `GOALS.md`「已知會影響結論解讀的性質」預告的組合**（PSNR 輸、LPIPS 明顯贏）。依該節規定如實記錄，**未回頭調整退化流程或度量約定**。
+  - **重現性：** 第二次執行（`20260918T182231Z`、`--limit 1`）對同一張圖得到 PSNR `21.741615`、SSIM `0.600584`、LPIPS `0.367362`，與第一次逐位數相同。
+  - 報告標頭的 `git HEAD` 為 `54a223e…`、`worktree 狀態` 為「追蹤檔全部乾淨」，追溯鏈成立。
+- **兩項成本與正確性修正（詳見 [context/phase-04-context.md](context/phase-04-context.md)）：**
+  - **全尺寸 SSIM 的成本：** 首次真實執行單張 85.5 秒，遠高於 preflight 推估的 21–22 秒。逐項實測（4056×3040、沙箱 CPU）：載入 0.40 s、PSNR 0.14 s、**SSIM 21.34 s**、LPIPS 3.09 s；每張需各算兩次。獨立程序量測三種 SSIM 形式：三通道 11×11 為 21.82 s／**15423 MiB**、逐通道 11×11 為 21.26 s／13269 MiB、**逐通道可分離為 4.33 s／3355 MiB**。改用第三種（commit `264c6b4`），值由 `0.599408548507597` 變為 `0.5994085485075943`，**差 `2.665e-15`**；phase-02 的 naive 逐視窗交叉核對（二維 kernel、獨立實作、容差 1e-9）改動後仍通過。依據 `AGENTS.md`「為避免記憶體不足…屬於讓流程可運行的工作」。**定義未變，分數未被調整。**
+    - 修正後重測單張端到端：**30.3 秒、峰值 RSS 4287 MiB**（`/usr/bin/time -v`）。CPU 上十分鐘授權對應約 **20 張**，預設 `--limit 5` 約 150 秒。
+  - **裝置歸屬：** PSNR 與 SSIM 的輸入來自 Pillow，**永遠在 CPU 以 float64 計算**，不隨 SR 裝置改變；只有 SR 線與 LPIPS 跟隨裝置。原報告只有一欄「度量 device」填 SR 的裝置，在沙箱 CPU 碰巧正確，**但在使用者的 GPU 執行會把四個實際在 CPU 算出的數字標成 GPU**。已拆成「PSNR／SSIM device」與「LPIPS device」兩欄並改寫「跨批次可比性」（commit `63d1e2c`）。這也降低了 GPU 的 VRAM 風險：float64 全尺寸 SSIM 從來不會被搬上 12227 MiB 的卡。
+- **計劃更新（依 `PLANS.md`「新證據推翻後續假設時，先修計劃再繼續」）：** `PLANS.md`「已確認基線 / 資源」加入實測數字與裝置歸屬；`phases/phase-05` 的樣本規模改引 phase-04 實測、preflight 的磁碟檢查改用實測體積、新增「驗收時需確認標頭已分欄」。**`GOALS.md` 未變更**：沒有任何固定約定或成功條件被改動。
+- **兩項設計決定的實際結果：** 樣本上限預設 5（見 02:15 記錄）；防覆蓋採加序號，底層仍 `mkdir(exist_ok=False)`。
+- **產物體積（實測）：** 1 張 run 為 **53 MB**，3 張為 **159 MB**。目前 `evaluation/runs/` 共四個 run。
+- **不變式（實際觀察）：** 761 筆雜湊清單 `diff` 完全相同；`git status --short src tests pyproject.toml requirements-wsl.txt models input output` **為空**；所有寫入都在 `evaluation/runs/<timestamp>/` 之下。
+- **限制：**
+  - 所有數字皆為**沙箱 session、CPU**，不是交付環境。
+  - SSIM 平均的 SR 勝出僅 0.000230，逐張 1 勝 2 負，**不應解讀為 SR 在 SSIM 上勝出**。
+  - 3 張樣本全部來自同一次飛行的連續影像，場景高度相似。
+  - 同名目錄的防覆蓋只在單元檢查中以人為配置驗證，真實 CLI 兩次執行落在不同秒數，未觸發序號路徑。
+- **阻塞：** 無。本階段未新增「待 GPU 補測」項目（清單仍為 3 項）。
+- **下一步：** phase-05（真實小樣本驗收、GPU 交接腳本、成本估算與文件對齊）。
+- **證據位置：** 本筆記錄；`context/phase-04-context.md`；run 目錄 `20260918T181724Z`、`20260918T182231Z`、`20260918T183156Z`。本階段 commit 依序為 `8c647f4`（`docs:` start 與兩項決定）、`68c7305`（`test:` red）、`874a4b7`（`feat:` run 目錄配置）、`0dfc5a7`（`feat:` 批次執行）、`06bb196`（`feat:` 平均）、`5db48db`（`refactor:` 共用勝方規則）、`46695c2`（`feat:` 報告）、`54a223e`（`feat:` GPU 記憶體釋放）、`51e487e`（`feat:` CLI）、`264c6b4`（`fix:` SSIM 記憶體）、`63d1e2c`（`fix:` 標頭裝置歸屬）、`787a0cd`（`docs:` context）、`51b4675`（`docs:` 計劃更新），close 記錄本身另成一顆。
 
 <!-- 追加重要事件時用這個格式：
 
