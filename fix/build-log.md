@@ -8,7 +8,7 @@
 |---|---|---|---|---|---|
 | 01 — EXIF 方向正確套用 | Complete | 2026-09-18 11:52 CST | 2026-09-18 12:06 CST | 本檔活動紀錄；commits `01b982b`、`534e6eb` | 無 |
 | 02 — 來源位深明確拒絕 | Complete | 2026-09-18 12:10 CST | 2026-09-18 12:24 CST | 本檔活動紀錄；commits `ea59e25`、`982cc91` | 無 |
-| 03 — 文件對齊與整體驗收 | Not started | — | — | — | 無 |
+| 03 — 文件對齊與整體驗收 | Complete | 2026-09-18 12:28 CST | 2026-09-18 12:44 CST | 本檔活動紀錄；commit `f4e97e7` | 無 |
 
 只使用 `Not started`、`In progress`、`Blocked`、`Complete`。`Complete` 必須有全部必要 acceptance 與檢查的觀察證據。
 
@@ -136,3 +136,55 @@
 - **阻礙：** 無。
 - **下一步：** phase-03（依賴 01、02，均已 Complete）：README 對齊、整體驗收、真實批次。
 - **證據位置：** 本檔；commits `ea59e25`（Red）、`982cc91`（Green）；`$TMPDIR/probe02.py`、`$TMPDIR/predecode.py`、`$TMPDIR/cli02/`（session 暫存，非專案檔）。
+
+### 2026-09-18 12:44 CST — Phase 03：文件對齊與整體驗收
+
+- **狀態：** Not started → In progress → Complete（前置 01、02 均為 Complete）
+- **授權依據：** [phase-03](phases/phase-03-docs-and-acceptance.md)。
+- **實際變更（僅 `README.md`，未改程式、測試或依賴）：** commit `f4e97e7`。
+  1. **第 66 行讀寫契約句**：原句「多頁 TIFF、高位深與浮點圖片會明確拒絕；普通圖片轉成 RGB，不保存 alpha、GIS 或其他 metadata。」改為說明高位深**依容器編碼判定**（PNG IHDR 位深、TIFF `BitsPerSample`）而非只看解碼後 mode，並補上「讀入時先依 EXIF Orientation 把方向校正到像素上，輸出 PNG 不保留方向標記」。理由：原句的 metadata 承諾是**輸出端**的，被讀成涵蓋輸入端幾何；「高位深」在 phase-02 之前只對灰階成立。
+  2. **新增 `### 讀圖正確性修正（2026-09-18）`**（置於 V1 最終驗收段落之後、指令區塊之前）：兩個缺陷的修正內容、33／33 無 skipped、34 張既有圖片輸出位元組不變、真實批次結果，以及**已知限制清單**（CPU-only、僅 PNG／TIFF 容器、浮點的兩條拒絕路徑、未壓縮 TIFF 上游缺陷、輸出 `0600`）。
+  - **第 64 行 `input/DJI_001.JPG` 範例：** 檢視後敘述本身只談輸出檔名對應，修正後成立，未改動；方向行為由新增句涵蓋。
+  - **README 新寫入的每句都對應本檔既有證據**，其中兩項在本階段另行實測後才寫入：輸出 PNG 權限確為 `0600`；輸出 chunk 僅 `IHDR`／`IDAT`／`IEND`，`getexif()` 為空、`orientation=None`（即確實不保留方向標記）。
+- **驗證：**
+  - **完整 suite：** `.venv/bin/python -m unittest discover -s tests -v` → **`Ran 33 tests ... OK`**，`grep -ci skipped` = **0**（無 skipped）。收尾再跑一次 `discover -s tests` 同為 33 通過。
+  - **真實小批次 CLI（本計劃的驗收批次）：** 以 `input/whaledrone_seek10s_x1536_y768_512.png` 的真實 64×48 海面裁切為唯一素材，於 `$TMPDIR/cli03/input` 產生三個輸入 —— `a_good.jpg`（無 EXIF）、`b_high.png`（同一真實像素 ×257 寫成真正 16-bit RGB PNG，IHDR bitdepth=16 colortype=2）、`c_oriented.jpg`（像素先 ROTATE_90 存檔並標記 Orientation 6，因此正確顯示方向等於原裁切）。未修改 `input/`、`output/`、`test-data/` 任何既有檔案。
+    ~~~text
+    .venv/bin/python -m drone_sr --input $TMPDIR/cli03/input --output $TMPDIR/cli03/output
+    Device: cpu / Model: loaded / Images: 3
+    [1/3] a_good.jpg
+    [2/3] b_high.png — Failed: Unsupported source bit depth: 16 bits per sample
+    [3/3] c_oriented.jpg
+    Processed: 2 / Failed: 1 / 退出碼 1（約 3.2 s，含啟動與模型載入）
+    ~~~
+    - **方向正確性（非循環證明）：** `c_oriented.png` 輸出為 **256×192**，與未旋轉參考 `a_good.png` **同向同尺寸**；未修正時其輸出會是 192×256。兩者平均差 **0.60／255**、最大差 27／255、34.3% 像素完全相同 —— 差異來自旋轉後重新 JPEG 編碼與模型非旋轉等變，與 PLANS.md 基線量到的 0.76／255 同量級。若方向未被套用，兩者連尺寸都不會一致。
+    - 16-bit 那張**沒有產生任何輸出檔**（輸出目錄只有 `a_good.png`、`c_oriented.png`）。
+    - 三張來源 `sha256sum -c` 全部 `OK`。
+  - **device：** `cpu`。本輪 `torch.cuda.is_available()` 為 False。
+- **GOALS.md 未解問題結案狀況：**
+  - float 彩色 TIFF：phase-02 已結案（Pillow 無法識別，記為 Failed；訊息非本程式發出），已寫入 README 限制。
+  - **GPU：** 本輪環境無可用 CUDA，真實批次以 CPU 執行。依 phase-03 規定**記為限制而非通過**，README 亦明確標示「未在 GPU 上重跑」。
+- **限制：** 除上述 CPU-only 外，未壓縮 TIFF 上游缺陷、`0600` 權限、12-bit JPEG 皆未處理／未驗證，已逐項寫入 README。另觀察到 README 結尾仍連結已於 `af6989e` 移除的 `build/build-log.md` 與 `build/GOALS.md`；屬本階段非目標（不重寫其他章節），未更動，回報使用者。
+- **阻礙：** 無。
+- **下一步：** 三階段皆 Complete，依 PLANS.md「完成即停止」，不展開後續優化。
+- **證據位置：** 本檔；commit `f4e97e7`；`$TMPDIR/cli03/`（session 暫存，非專案檔）。
+
+### 2026-09-18 12:44 CST — 整體完成標準逐條核對
+
+對照 [PLANS.md](PLANS.md)「整體完成標準」：
+
+- **三個階段均為 Complete 且有觀察證據** —— 是。01（`01b982b`、`534e6eb`）、02（`ea59e25`、`982cc91`）、03（`f4e97e7`）。
+- **GOALS.md 每項成功條件都有觀察依據** —— 是：
+  1. 八個 Orientation 逐像素相同 → `test_exif_orientation_is_applied_to_pixels`，比對 `write_png()` 實際輸出的 `tobytes()`。
+  2. JPEG 與 eXIf PNG 皆通過、TIFF 未旋轉兩次 → 同上測試的兩種格式 subTest ＋ `test_oriented_tiff_is_not_transposed_twice`。
+  3. 真正 16-bit 彩色被拒、CLI 記 Failed、退出碼 1 → `test_high_bit_depth_is_rejected_explicitly` ＋ cli02／cli03 兩次真實 CLI。
+  4. 既有 8-bit 輸出位元組不變 → 34／34 SHA-256 與修正前相同。
+  5. 必須保留的行為全部成立、既有 29 測試通過 → 33／33 通過（既有 29 未改動、未放寬）；不變式另以 `$TMPDIR/invariants01.py` 實測。
+  6. README 敘述可逐條對應證據 → 見本階段紀錄。
+- **不變式逐條有證據，特別是多頁 TIFF 與 float 拒絕未因 phase-01 失效** —— 是：測試守門 ＋ 負向控制（把 `exif_transpose()` 移到前面會使 2 個 subtest 失敗）＋ 修正後實測。
+- **既有 29 測試加新增測試全數通過，既有斷言未被放寬** —— 是，33／33、無 skipped；`git diff` 中測試檔唯一刪除行為 import 行。
+- **一次真實小批次 CLI 驗收通過，原始檔雜湊不變** —— 是（cli03，`Processed: 2`／`Failed: 1`／退出碼 1，三張來源雜湊 `OK`）。
+- **README 敘述與實際行為逐條對應；剩餘限制明確記錄** —— 是。
+- **完成即停止** —— 是，不展開後續優化。
+
+**未通過或未驗證（不得視為通過）：** 本輪全部檢查在 **CPU** 執行，無 GPU 觀察證據；12-bit JPEG、未壓縮 TIFF 上游缺陷路徑未驗證；輸出 `0600` 權限維持原狀。
