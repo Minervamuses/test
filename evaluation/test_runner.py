@@ -2,13 +2,14 @@
 
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from PIL import Image
 
 from metrics import load_metric_tensor
 from perceptual import PerceptualMetric
-from runner import ImageFailure, ImageResult, process_image, run_batch, select_sources
+from runner import ImageFailure, ImageResult, process_image, release_device_memory, run_batch, select_sources
 from runs import allocate_run_directory
 
 
@@ -150,6 +151,20 @@ class RunBatchTests(unittest.TestCase):
             self.assertEqual(restored.size, (64, 48))
         self.assertEqual(load_metric_tensor(self.run_dir / "sr" / "real.png").shape, (1, 3, 48, 64))
         self.assertGreater(result.sr.psnr, 0)
+
+
+class DeviceMemoryTests(unittest.TestCase):
+    def test_the_cache_is_emptied_when_a_gpu_is_present(self):
+        with patch("torch.cuda.is_available", return_value=True), patch("torch.cuda.empty_cache") as empty:
+            release_device_memory()
+
+        empty.assert_called_once_with()
+
+    def test_nothing_is_called_on_cpu(self):
+        with patch("torch.cuda.is_available", return_value=False), patch("torch.cuda.empty_cache") as empty:
+            release_device_memory()
+
+        empty.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
+import torch
 from PIL import Image
 
 from bicubic import upscale_bicubic
@@ -67,6 +68,12 @@ def select_sources(directory: Path, limit: int = DEFAULT_LIMIT, seed: int | None
     return found
 
 
+def release_device_memory() -> None:
+    """Hand freed GPU blocks back to the driver. A no-op on CPU."""
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
 def _score(truth, candidate, perceptual) -> LineScores:
     return LineScores(psnr=psnr(truth, candidate), ssim=ssim(truth, candidate), lpips=perceptual(truth, candidate))
 
@@ -88,6 +95,9 @@ def process_image(source: Path, run_dir: Path, sr_line, perceptual) -> ImageResu
         upscale_bicubic(lr_path, record.cropped, bicubic_path)
     with _stage("sr", source):
         sr_line.run(lr_path, sr_path, record.cropped)
+    # GOALS.md asks for this explicitly: on a 12227 MiB card, SR activations
+    # still held while LPIPS allocates its own is the shape of an OOM.
+    release_device_memory()
     with _stage("metrics", source):
         truth = to_metric_tensor(cropped)
         scores = {
@@ -115,6 +125,7 @@ def run_batch(sources, run_dir: Path, sr_line, perceptual, progress=None):
             results.append(process_image(source, run_dir, sr_line, perceptual))
         except _StageError as error:
             failures.append(ImageFailure(source.name, error.stage, error.reason))
+        release_device_memory()
     return results, failures
 
 
