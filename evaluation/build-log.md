@@ -6,7 +6,7 @@
 
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻塞 |
 |---|---|---|---|---|---|
-| 01 — 固定退化契約與 bicubic 基線 | In progress | 2026-09-19 | — | — | 無 |
+| 01 — 固定退化契約與 bicubic 基線 | Complete | 2026-09-19 | 2026-09-19 | 24 項檢查通過；真實樣本尺寸鏈 4056×3040 → 1014×760 → 4056×3040；bicubic 與獨立重算逐位元相同 | 無 |
 | 02 — 度量模組與 lpips 依賴 | Not started | — | — | — | 無 |
 | 03 — SR 線接上未修改的 pipeline | Not started | — | — | — | 無 |
 | 04 — 執行器、run 目錄與逐張＋平均報告 | Not started | — | — | — | 無 |
@@ -111,6 +111,32 @@
 - **阻塞：** 無。
 - **下一步：** 依 phase-01「Commit 切點」先提交定義驗收的檢查（red），再分四顆實作。
 - **證據位置：** 本筆記錄。觀察時的 `HEAD` = `507f2a9`。本筆隨 `docs: start phase 01` 提交，該顆與本階段其餘 commit 的 hash 於 close 記錄一併列出（沿用 `507f2a9` 的既有做法，不用 `--amend` 回填）。
+
+## 2026-09-19 01:15 (CST) — Phase 01: close
+
+- **狀態：** `In progress` → `Complete`
+- **授權範圍：** [phases/phase-01-degradation-and-bicubic.md](phases/phase-01-degradation-and-bicubic.md)。
+- **變更：** 新增四個模組與四個檢查模組於 `evaluation/`：`sources.py`（探索與解碼）、`degradation.py`（mod-crop、降採樣、PNG 寫出）、`bicubic.py`（從磁碟 LR PNG 放大）、`runs.py`（建立 run 目錄）。未動 `src/drone_sr/**`、`tests/**` 或任何受保護路徑。
+- **驗證（聚焦，實際觀察）：**
+  - `.venv/bin/python -m unittest discover -s evaluation` → **`Ran 24 tests` `OK`**。
+  - `.venv/bin/python -W error::DeprecationWarning -m unittest discover -s evaluation` → **`Ran 24 tests` `OK`**（refactor 前為 `FAILED (errors=5)`，肇因於 Pillow 12 已棄用的 `Image.getdata`）。
+  - `.venv/bin/python -m unittest discover -s tests` → **`Ran 33 tests` `OK`**，每一顆 commit 後皆重跑並通過。
+- **驗證（較廣，真實資料，實際觀察）：** run 目錄 `evaluation/runs/20260918T171502Z/`（UTC 命名；當地時間 2026-09-19 01:15 CST），取 `input/` 前兩張。
+  - `DJI_20230127115759_0001_W.JPG`：原始 `(4056, 3040)` → 裁切後 `(4056, 3040)`、裁掉 `(0, 0)` → LR `(1014, 760)` → bicubic `(4056, 3040)`。
+  - `DJI_20230127115802_0002_W.JPG`：同上尺寸鏈。
+  - **兩條線對等性的直接證據：** 兩張的 bicubic PNG 與「另外獨立 `Image.open(lr.png).convert("RGB").resize(cropped_size, BICUBIC)`」逐位元相同（`tobytes()` 相等）→ `True`。
+  - 六個中間檔的檔頭皆為 `89504e470d0a1a0a`（PNG magic），逐檔列出，無一例外。
+  - 端到端（解碼→裁切→降採樣→寫 LR→從 LR 放大→寫 bicubic）每張 **5.10 秒 / 4.24 秒**。**量測環境：沙箱 session、CPU。** 這是退化與 bicubic 線的診斷數字，不是交付用的資源量測；可對外引用的單張成本由 phase-03／05 在使用者 shell 量。bicubic 線依 `GOALS.md`「固定的度量約定」第 6 條恆為 Pillow CPU 實作。
+- **驗證（不變式，實際觀察）：** 761 筆雜湊清單（`input/`、`output/`、`models/`、`src/**.py`、`tests/**.py`、`pyproject.toml`、`requirements-wsl.txt`）執行前後 `diff` **完全相同**。`git status --short` 仍只列十二個沙箱裝置檔，與 preflight 一致。`git check-ignore -v evaluation/runs/20260918T171502Z/report.md` → 命中 `.gitignore:15`，run 產物不進版本控制。
+- **驗收條件對照：** 八項全部由上述觀察滿足——尺寸往返（含 203×101 非 4 倍數案例：裁切成 200×100、LR 50×25、bicubic 200×100）、覆寫 LR 檔使 bicubic 輸出改變、獨立重算逐位元相同、探索規則、MPO 可解碼與 16-bit 明確拒絕、真實 4056×3040 尺寸鏈、PNG magic、受保護路徑未變動。
+- **限制：**
+  - **PNG 原圖僅以合成 fixture 驗證，尚未在真實 PNG 資料上執行。** `input/` 仍為 0 張 PNG。
+  - 16-bit 拒絕只實作並驗證 PNG 的 IHDR 位深；探索只收 png／jpg／jpeg，Pillow 的 JPEG 解碼為 8-bit，因此目前沒有其他能抵達此檢查的深色深來源。
+  - 兩張來源檔名 stem 相同時（例如同時存在 `a.png` 與 `a.JPG`）會寫到同一個輸出路徑。目前 `input/` 738 張檔名皆唯一，未觸發；phase-04 的執行器需決定是要視為單張失敗排除還是中止。
+  - 上述耗時為沙箱 CPU 數字，非交付環境。
+- **阻塞：** 無。本階段不需要 GPU，未產生「待 GPU 補測」項目。
+- **下一步：** phase-02（度量模組與 `lpips` 依賴）。它與 01 互相獨立，依賴皆已滿足。
+- **證據位置：** 本筆記錄；run 目錄 `evaluation/runs/20260918T171502Z/`（未進版本控制）。本階段 commit 依序為 `05d3c9f`（`docs:` start）、`b48088a`（`test:` red，24 項、4 個 import 錯誤）、`ea72bc8`（`feat:` sources）、`8d9f910`（`feat:` degradation）、`1b7ac51`（`feat:` bicubic，本階段核心）、`e7f030a`（`feat:` runs）、`b61477b`（`refactor:` 移除已棄用 API），close 記錄本身另成一顆。
 
 <!-- 追加重要事件時用這個格式：
 
