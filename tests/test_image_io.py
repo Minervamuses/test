@@ -1,10 +1,11 @@
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
 
 from drone_sr.image_io import read_image, write_png
 
@@ -16,6 +17,21 @@ class ImageIOTests(unittest.TestCase):
         self.root = Path(self.directory.name)
         self.source = self.root / "source.png"
         self.destination = self.root / "output" / "source.png"
+
+    def _oriented_source(self, path, orientation, image_format):
+        # Non-square with four distinguishable corners: every orientation maps to
+        # a different pixel layout, so rotations and mirrors cannot be confused.
+        image = Image.new("RGB", (40, 20), (10, 10, 10))
+        for corner, color in (
+            ((0, 0), (255, 0, 0)),
+            ((39, 0), (0, 255, 0)),
+            ((0, 19), (0, 0, 255)),
+            ((39, 19), (255, 255, 0)),
+        ):
+            image.putpixel(corner, color)
+        exif = Image.Exif()
+        exif[274] = orientation
+        image.save(path, format=image_format, exif=exif)
 
     def test_rgb_channels_range_shape_and_png_round_trip(self):
         source = Image.new("RGB", (2, 1))
@@ -50,6 +66,56 @@ class ImageIOTests(unittest.TestCase):
         Image.new("I;16", (2, 2)).save(self.source)
         with self.assertRaisesRegex(ValueError, "Unsupported image mode"):
             read_image(self.source)
+
+    def test_exif_orientation_is_applied_to_pixels(self):
+        for image_format, suffix in (("JPEG", ".jpg"), ("PNG", ".png")):
+            for orientation in range(1, 9):
+                with self.subTest(format=image_format, orientation=orientation):
+                    source = self.root / f"oriented_{orientation}{suffix}"
+                    self._oriented_source(source, orientation, image_format)
+                    before = hashlib.sha256(source.read_bytes()).hexdigest()
+                    with Image.open(source) as opened:
+                        stored = opened.convert("RGB").tobytes()
+                        expected = ImageOps.exif_transpose(opened).convert("RGB")
+                    if orientation != 1:
+                        # Guard the fixture: orientations 2-4 keep the size, so a
+                        # size-only comparison would pass without any correction.
+                        self.assertNotEqual(expected.tobytes(), stored)
+
+                    destination = self.root / "output" / f"oriented_{orientation}.png"
+                    write_png(read_image(source), destination, source)
+
+                    with Image.open(destination) as output:
+                        self.assertEqual(output.size, expected.size)
+                        self.assertEqual(output.tobytes(), expected.tobytes())
+                    self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), before)
+
+    def test_oriented_tiff_is_not_transposed_twice(self):
+        source = self.root / "oriented.tif"
+        self._oriented_source(source, 6, "TIFF")
+        with Image.open(source) as opened:
+            # Pillow applies the tag itself while loading a TIFF.
+            expected = opened.convert("RGB")
+
+        tensor = read_image(source)
+
+        self.assertEqual(expected.size, (20, 40))
+        write_png(tensor, self.destination, source)
+        with Image.open(self.destination) as output:
+            self.assertEqual(output.size, expected.size)
+            self.assertEqual(output.tobytes(), expected.tobytes())
+
+    def test_multi_frame_images_stay_rejected(self):
+        first = Image.new("RGB", (4, 2), (10, 20, 30))
+        second = Image.new("RGB", (4, 2), (40, 50, 60))
+        pages = self.root / "pages.tif"
+        first.save(pages, save_all=True, append_images=[second])
+        animated = self.root / "animated.png"
+        first.save(animated, save_all=True, append_images=[second])
+        for source in (pages, animated):
+            with self.subTest(source=source.name):
+                with self.assertRaisesRegex(ValueError, "Only single-frame images are supported"):
+                    read_image(source)
 
     def test_clamp_and_round_before_png_encoding(self):
         Image.new("RGB", (1, 1)).save(self.source)
