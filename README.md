@@ -8,7 +8,9 @@
 
 **會做：** 資料夾批次；逐張隔離失敗並給出 `Processed`／`Failed` 摘要與退出碼；自動選用 CUDA 或 CPU；超過 512 的圖自動分塊；讀入時依 EXIF Orientation 校正方向；拒絕多頁、高位深與浮點來源。
 
-**不會做：** 不下載權重；不遞迴掃描子資料夾；不轉換影片；不計算 PSNR／SSIM，也不做模型或畫質排名；不保存 alpha、EXIF、GIS 等 metadata；不提供 Docker 映像。
+**不會做：** 不下載權重；不遞迴掃描子資料夾；不轉換影片；**本 pipeline 本身不計算任何畫質指標**，也不做模型排名；不保存 alpha、EXIF、GIS 等 metadata；不提供 Docker 映像。
+
+PSNR／SSIM／LPIPS 由另一個獨立工具 [`evaluation/`](evaluation/README.md) 提供，它以合成退化自造真值，比較本 pipeline 與 bicubic 放大。該工具只 import `src/drone_sr/` 的公開函式，不改動它，產物也只寫在 `evaluation/runs/` 之下。
 
 ## 採用的環境與版本
 
@@ -153,7 +155,8 @@ python -m drone_sr --input "/path/to/images" --output "/path/to/sr-results"
 - 浮點圖片的拒絕來自兩條不同路徑：單通道 float（mode `F`）回報 `Unsupported image mode: F`；32-bit float **彩色** TIFF 則是 Pillow 連識別都失敗（`UnidentifiedImageError`），同樣記為該張 Failed，但訊息不是本程式發出的。
 - 未壓縮 TIFF ＋ Orientation 5–8 ＋ mode `L`／`P`／`RGBA`／`CMYK` 時，Pillow 會轉置像素緩衝區卻未更新 `size`，輸出既非原圖也非正確方向。這是上游缺陷，本次未處理；本專案實際輸入為 8-bit RGB，碰不到此路徑。
 - SwinIR 的 512 核心大圖與所有場景接縫未驗證。
-- 畫質：已開啟原圖與輸出檢視，海面構圖、反光位置與色彩正常，但細紋較平滑；未證明新增紋理是真實地物細節。沒有配對且對齊的高解析度真值，因此不提供 PSNR／SSIM 或模型排名。小裁切的 VRAM 有餘裕，不能據此承諾 4K 全圖或整段影片效能。
+- 畫質：已開啟原圖與輸出檢視，海面構圖、反光位置與色彩正常，但細紋較平滑；未證明新增紋理是真實地物細節。小裁切的 VRAM 有餘裕，不能據此承諾 4K 全圖或整段影片效能。
+- 畫質量化：手上仍**沒有**配對且對齊的高解析度真值，因此本 pipeline 的輸出本身不附 PSNR／SSIM。[`evaluation/`](evaluation/README.md) 繞開這個缺口的方式是**自造真值**——拿高解析原圖降採樣成低解析輸入，再由本 pipeline 與 bicubic 各自放大回去與原圖比對。數字因此只在「純 bicubic 退化」這個前提下成立，不能當成真實低解析影像上的畫質排名。5 張 4056×3040 樣本（CPU）的實測是 **bicubic 在 PSNR 與 SSIM 上全勝、本 pipeline 在 LPIPS 上全勝**；這是 GAN 類 SR 在乾淨 bicubic 基準上的已知傾向，解讀前提見該工具的 README。
 - 驗收資料只來自使用者指定的單一 [WhaleDrone](https://huggingface.co/datasets/LucieLprt-Dvldr/WhaleDrone) MP4（資料集標示 CC-BY-NC-4.0），沒有下載 SRT 或其他影片。結果是海面場景，沒有鯨魚／道路／屋頂細節驗收。
 - 不含整段影片轉換與 Docker 映像。
 - 未重新建立第二套乾淨環境驗證安裝。
