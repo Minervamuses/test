@@ -1,0 +1,19 @@
+# Dependencies for the evaluation tool only.
+#
+# The project's own manifests (../pyproject.toml, ../requirements-wsl.txt) are
+# deliberately untouched: the evaluation tool imports drone_sr but never changes
+# what drone_sr needs. Install into the existing project .venv with
+#
+#     .venv/bin/python -m pip install -r evaluation/requirements.txt
+#
+# torch, torchvision, numpy and Pillow are already provided by the project and
+# are intentionally not repeated here, so that installing this file can never
+# move them.
+#
+# lpips is the metric itself. scipy and tqdm are its declared dependencies -
+# not optional: lpips/__init__.py imports lpips.trainer at module level, and
+# that module imports scipy.ndimage and tqdm at module level. The user
+# authorized these two alongside lpips on 2026-09-19.
+lpips==0.1.4
+scipy==1.18.1
+tqdm==4.70.1
