@@ -7,7 +7,7 @@
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻塞 |
 |---|---|---|---|---|---|
 | 01 — 固定退化契約與 bicubic 基線 | Complete | 2026-09-19 | 2026-09-19 | 24 項檢查通過；真實樣本尺寸鏈 4056×3040 → 1014×760 → 4056×3040；bicubic 與獨立重算逐位元相同 | 無 |
-| 02 — 度量模組與 lpips 依賴 | In progress | 2026-09-19 | — | — | 等待 scipy／tqdm 授權（見 01:22 記錄） |
+| 02 — 度量模組與 lpips 依賴 | Complete | 2026-09-19 | 2026-09-19 | 52 項檢查通過；PSNR 48.1308 dB 對上手算；SSIM 與 naive 參考差 ≤1.3e-15；LPIPS 同圖 0.0 | 無（兩項 GPU 量測列入「待 GPU 補測」） |
 | 03 — SR 線接上未修改的 pipeline | Not started | — | — | — | 無 |
 | 04 — 執行器、run 目錄與逐張＋平均報告 | Not started | — | — | — | 無 |
 | 05 — 真實小樣本驗收、成本量測與文件對齊 | Not started | — | — | — | 無 |
@@ -40,7 +40,8 @@
 
 | # | 來源階段 | 要量什麼 | 沙箱內為何做不到 | 對應驗收條件 | 狀態 |
 |---|---|---|---|---|---|
-| — | — | 尚未產生項目（五個階段皆 `Not started`） | — | — | — |
+| 1 | 02 | LPIPS 對一張 4056×3040 真值與其 bicubic 版本的耗時、峰值 RSS、**峰值 VRAM**、device 名稱 | 沙箱 session 看不到 GPU（`/dev/dxg` 不存在、`torch.cuda.is_available()` 為 `False`），量到的是 CPU 數字 | phase-02「真實尺寸的 LPIPS 耗時、峰值 RSS 與峰值 VRAM 已在交付裝置上實測並記錄」 | 待補 |
+| 2 | 02 | 同一組輸入連跑兩次，LPIPS 在 **GPU 上**數值完全相同，且 `torch.backends.cudnn.benchmark` 為 `False` | 同上。CPU 的決定性結果不能代表 GPU 路徑（TF32、cuDNN 演算法選擇） | phase-02「同一決定性檢查已在 GPU 上通過且設了 `cudnn.benchmark = False`」 | 待補 |
 
 狀態只用：`待補`、`已補（使用者 shell）`。已補的項目要在「活動紀錄」有對應的一筆，寫明確切命令、輸出與量測環境。
 
@@ -160,6 +161,40 @@
 - **阻塞：** `lpips` 的安裝等待使用者對 scipy 與 tqdm 的決定。PSNR 與 SSIM 不依賴此決定，先行實作。
 - **下一步：** 先完成 PSNR 與 SSIM 及其性質檢查（不依賴該決策），再就 scipy／tqdm 取得授權。
 - **證據位置：** 本筆記錄；`$TMPDIR/baseline/pip-before.txt`。commit 見本階段 close 記錄的清單。
+
+## 2026-09-19 02:00 (CST) — Phase 02: close
+
+- **狀態：** `In progress` → `Complete`
+- **授權範圍：** [phases/phase-02-metrics-and-lpips.md](phases/phase-02-metrics-and-lpips.md)，加上使用者於 2026-09-19 對 `scipy` 與 `tqdm` 的新授權（見下）。
+- **使用者決定（新增授權）：** preflight 發現 `import lpips` 硬性需要 `scipy` 與 `tqdm`，觸及 `PLANS.md`「需要 `lpips` 以外的任何新依賴」的停止條件。已停下並詢問，使用者選定**授權 scipy 與 tqdm**，照一般方式 `pip install lpips`。三者釘版於 `evaluation/requirements.txt`，`pyproject.toml` 與 `requirements-wsl.txt` 不動。
+- **變更：** 新增 `evaluation/metrics.py`（輸入轉換、PSNR、SSIM）、`evaluation/perceptual.py`（LPIPS 包裝）、`evaluation/requirements.txt`、`evaluation/gpu_checks/probe_lpips_full_size.sh`，以及四個檢查模組。未動任何受保護路徑。
+- **驗證（聚焦，實際觀察）：** `TORCH_HOME=$TMPDIR/torch-home .venv/bin/python -m unittest discover -s evaluation` → **`Ran 52 tests` `OK`**（phase-01 的 24 項加本階段 28 項）。`.venv/bin/python -m unittest discover -s tests` → **`Ran 33 tests` `OK`**，每一顆 commit 後皆重跑並通過。
+  - **沙箱注意事項：** 沙箱 session 的 `~/.cache/torch` 唯讀（`OSError: [Errno 30] Read-only file system`），需以 `TORCH_HOME` 指向可寫目錄；**使用者的一般 shell 不需要這個變數**。
+- **六組性質檢查的實測數值（量測環境：沙箱 session、CPU）：**
+  1. **同圖對自己：** PSNR `inf`；SSIM `1.0`（random 與 smooth 兩種輸入皆是）；LPIPS **`0.0`**（精確為 0，優於契約要求的 ≤1e-4）。
+  2. **PSNR 手算對照：** 整張差 1 個位階 → `48.1308036086791` dB，與 `10*log10(255**2/1)` 的 `48.1308036086791` 每一位數字相同。
+  3. **單調性：** PSNR 隨雜訊 1／2／4／8／16 為 `48.1826`／`42.1857`／`36.2214`／`30.2791`／`24.4198` dB（嚴格遞減）；SSIM 為 `0.991229`／`0.965856`／`0.876569`／`0.642243`／`0.313337`（嚴格遞減）；LPIPS 隨雜訊 2／6／18／54 為 `0.001369`／`0.021212`／`0.152412`／`0.636391`（嚴格遞增，方向正確：LPIPS 越低越像）。
+  4. **值域：** SSIM 於 smooth 對反相為 `0.052895`、smooth 對 random 為 `0.010471`、random 對 random 為 **`-0.060878`**（落在 `[-1,1]`，且確認 SSIM 確實可為負，值域不是 `[0,1]`）。LPIPS 對真實 bicubic 4× 往返為 `0.118213`（160×128 合成圖）與 **`0.543673`**（真實 4056×3040 影像），皆嚴格落在 `(0,1)`。
+  5. **決定性：** 三個度量連跑兩次數值完全相同（`==` 比較為 `True`），`torch.backends.cudnn.benchmark` 讀回 `False`。**此為 CPU 上的結果；GPU 上的同一檢查列入「待 GPU 補測」第 2 項。**
+  6. **對稱性與尺寸檢查：** PSNR／SSIM／LPIPS 交換輸入後數值完全相同；尺寸不同一律拋 `ValueError` 並在訊息中列出兩個 shape，不靜默縮放；非 RGB BCHW 輸入亦拒絕。
+- **SSIM 交叉核對（已做，但不是第三方實作）：** `scikit-image` 與 `torchmetrics` 不在授權內，因此改以**刻意寫慢的獨立重新推導**核對——明確走訪每個 11×11 視窗（不用 conv2d），並直接由各向同性二維高斯公式建窗（不是一維正規化後外積）。三組輸入的差距：random 對 random `4.163e-17`、smooth 對 smooth+12 `1.332e-15`、完全相同 `0`。**這涵蓋 `GOALS.md` 點名的失效模式（window 正規化、邊界處理、通道平均），但它不是第三方實作**，只能證明快速路徑算的是預期的定義，不能證明該定義與其他工具一致。**此限制必須寫進最終報告。**
+- **兩個 SSIM 自由度已釘死並須寫進報告標頭：** 邊界處理為 `valid`（不補邊，SSIM map 為 `(H-10)×(W-10)`，沒有任何值由虛構像素算出）；變異數採 Wang et al. 的高斯加權**有偏**估計，不是 `scikit-image` 的樣本共變異修正。累加一律 float64。
+- **依賴隔離（實際觀察）：** `pip list --format=freeze` 安裝前後 `diff` 僅三行新增：`lpips==0.1.4`、`scipy==1.18.1`、`tqdm==4.70.1`，無任何移除或版本變動。安裝後讀回 `torch 2.11.0+cu128`、`torchvision 0.26.0+cu128`、`Pillow 12.3.0`、`spandrel 0.4.2`、`numpy 2.5.3`，全部與安裝前相同。`pip check` → `No broken requirements found`。
+- **LPIPS 權重（兩處來源）：**
+  - 線性層：**隨 wheel 附帶**，`lpips/weights/v0.1/alex.pth`，**6009 bytes**，SHA-256 `df73285e35b22355a2df87cdb6b70b343713b667eddbda73e1977e0c860835c0`。wheel 本身 53763 bytes、SHA-256 `fd537af5828b69d2e6ffc0a397bd506dbc28ca183543617690844c08e102ec5e`、BSD、`https://github.com/richzhang/PerceptualSimilarity`。
+  - AlexNet backbone：由 torchvision 下載，`https://download.pytorch.org/models/alexnet-owt-7be5be79.pth`，**244408911 bytes**，SHA-256 `7be5be791159472b1fbf3c69796f7cb30dca7ad8466c2df70058c37116cdee02`（torchvision 以 `check_hash` 自行驗證）。
+  - `lpips.LPIPS(net='alex')` 在 torchvision 0.26 下可載入：`tv.alexnet(pretrained=True)` 的舊介面仍能解析，只發出 deprecation warning。
+- **交接腳本（協定第 1 步，已完成）：** `evaluation/gpu_checks/probe_lpips_full_size.sh`。**已依「腳本的驗證責任」在沙箱內以 CPU 煙霧測試過**：exit 0，正確辨識並標示「CPU <-- not the delivery device」、VRAM 顯示 `n/a`。該次輸出：`DJI_20230127115759_0001_W.JPG`、真值 4056×3040、張量 `(1, 3, 3040, 4056)`、LPIPS `0.543673`、**耗時 4.74 秒、峰值 RSS 4325 MiB**。
+  - **推翻了計劃的一項預期：** `GOALS.md`「未解問題」推測 LPIPS 在全尺寸上可能成為比 SR 推論更大的瓶頸。**CPU 上 4.74 秒**顯示耗時不是瓶頸。剩下的未知只有 VRAM 是否放得下 12227 MiB，由使用者的探測回答。此發現不改變任何固定約定，也不改變後續階段的設計，因此未建立 `context/phase-02-context.md`。
+- **不變式（實際觀察）：** 761 筆雜湊清單執行前後 `diff` 完全相同。`git status --short` 除原有十二個沙箱裝置檔外，新增 `evaluation/.claude/`、`evaluation/gpu_checks/.claude/`（以及短暫出現的 `.mcp.json`），**與前十二個同類**，是 harness 隨工作目錄變動產生的沙箱 session 檔，**不清理、不提交**。
+- **限制：**
+  - 上列所有數值皆為**沙箱 session、CPU** 的觀察，不是交付環境的數字。
+  - SSIM 沒有第三方交叉核對（見上）。
+  - GPU 上的決定性與全尺寸資源量測尚未取得，列入「待 GPU 補測」第 1、2 項。
+  - LPIPS 只驗證 `net='alex'`，未驗證其他 backbone（也不在範圍內）。
+- **阻塞：** 無。依 `PLANS.md`「GPU 交接協定」，推遲的兩項都屬於協定列出的三類（GPU 資源數字、GPU 決定性檢查），**沒有任何正確性檢查被推遲**，因此本階段標 `Complete`，phase-04 可以開始。
+- **下一步：** phase-03（SR 線接上未修改的 pipeline）。依賴 phase-01，已 `Complete`。同時請使用者在自己的 shell 執行 `bash evaluation/gpu_checks/probe_lpips_full_size.sh` 並貼回輸出。
+- **證據位置：** 本筆記錄。本階段 commit 依序為 `1d38c33`（`docs:` start）、`10a0958`（`test:` PSNR／SSIM red）、`4a4424f`（`feat:` PSNR）、`f1b3404`（`feat:` SSIM）、`7daf46f`（`test:` SSIM 交叉核對）、`bfb546d`（`test:` 輸入轉換）、`d2e2107`（`chore:` 釘版 lpips）、`66e7415`（`refactor:` 共用 validate_pair）、`926e025`（`test:` LPIPS red）、`e655679`（`feat:` LPIPS 包裝）、`2b97d40`（`chore:` 探測腳本），close 記錄本身另成一顆。
 
 <!-- 追加重要事件時用這個格式：
 
