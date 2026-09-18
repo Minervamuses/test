@@ -1,6 +1,8 @@
 import hashlib
+import struct
 import tempfile
 import unittest
+import zlib
 from pathlib import Path
 from unittest.mock import patch
 
@@ -62,10 +64,113 @@ class ImageIOTests(unittest.TestCase):
         with self.assertRaises(OSError):
             read_image(self.source)
 
+    def _write_png(self, path, width, depth, colortype, rows):
+        # Hand-written so the source encoding is chosen, not assumed: Pillow cannot
+        # save 16-bit colour PNGs, and Image.new() hides the bit depth it picks.
+        def chunk(tag, data):
+            return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+
+        def pack(values):
+            if depth >= 8:
+                return b"".join(struct.pack(">H" if depth == 16 else ">B", value) for value in values)
+            per_byte = 8 // depth
+            packed = bytearray()
+            for start in range(0, len(values), per_byte):
+                byte = 0
+                for offset in range(per_byte):
+                    if start + offset < len(values):
+                        byte |= values[start + offset] << (8 - depth * (offset + 1))
+                packed.append(byte)
+            return bytes(packed)
+
+        header = struct.pack(">IIBBBBB", width, len(rows), depth, colortype, 0, 0, 0)
+        body = zlib.compress(b"".join(b"\x00" + pack(row) for row in rows))
+        path.write_bytes(
+            b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", header) + chunk(b"IDAT", body) + chunk(b"IEND", b"")
+        )
+
+    def _write_tiff(self, path, width, height, bits, values):
+        # Single-strip little-endian TIFF with three samples; Pillow cannot save
+        # 16-bit RGB TIFF either.
+        pixels = b"".join(struct.pack("<H" if bits == 16 else "<B", value) for value in values)
+        body = pixels + struct.pack("<3H", bits, bits, bits)
+        entries = [
+            (256, 4, 1, width), (257, 4, 1, height), (258, 3, 3, 8 + len(pixels)),
+            (259, 3, 1, 1), (262, 3, 1, 2), (273, 4, 1, 8), (277, 3, 1, 3),
+            (278, 4, 1, height), (279, 4, 1, len(pixels)), (284, 3, 1, 1),
+        ]
+        directory = struct.pack("<H", len(entries))
+        for tag, kind, count, value in entries:
+            directory += struct.pack("<HHLL", tag, kind, count, value)
+        path.write_bytes(
+            b"II*\x00" + struct.pack("<L", 8 + len(body)) + body + directory + struct.pack("<L", 0)
+        )
+
     def test_high_bit_depth_is_rejected_explicitly(self):
         Image.new("I;16", (2, 2)).save(self.source)
         with self.assertRaisesRegex(ValueError, "Unsupported image mode"):
             read_image(self.source)
+
+        # Pillow maps 16-bit colour PNGs onto RGB/RGBA, so the mode allow-list
+        # above cannot see them; these reach read_image() looking like 8-bit.
+        truecolour = self.root / "truecolour16.png"
+        self._write_png(truecolour, 2, 16, 2, [[256, 257, 511, 300, 301, 302]])
+        gray_alpha = self.root / "grayalpha16.png"
+        self._write_png(gray_alpha, 2, 16, 4, [[256, 65535, 511, 65535]])
+        with_alpha = self.root / "truecolouralpha16.png"
+        self._write_png(with_alpha, 2, 16, 6, [[256, 257, 511, 65535, 1, 2, 3, 65535]])
+        for source, colortype in ((truecolour, 2), (gray_alpha, 4), (with_alpha, 6)):
+            with self.subTest(png_colortype=colortype):
+                raw = source.read_bytes()
+                self.assertEqual((raw[24], raw[25]), (16, colortype))
+                with self.assertRaisesRegex(ValueError, "bit depth"):
+                    read_image(source)
+
+        tiff = self.root / "truecolour16.tif"
+        self._write_tiff(tiff, 2, 1, 16, [256, 257, 511, 300, 301, 302])
+        with Image.open(tiff) as opened:
+            self.assertEqual(opened.tag_v2.get(258), (16, 16, 16))
+            self.assertEqual(opened.mode, "RGB")
+        with self.assertRaisesRegex(ValueError, "bit depth"):
+            read_image(tiff)
+
+    def test_low_bit_depth_sources_stay_accepted(self):
+        one_bit = self.root / "gray1.png"
+        self._write_png(one_bit, 2, 1, 0, [[1, 0]])
+        two_bit = self.root / "gray2.png"
+        self._write_png(two_bit, 2, 2, 0, [[3, 0]])
+        four_bit = self.root / "gray4.png"
+        self._write_png(four_bit, 2, 4, 0, [[15, 0]])
+        palette = self.root / "palette.png"
+        indexed = Image.new("P", (2, 1))
+        indexed.putpalette([255, 0, 0, 0, 255, 0])
+        indexed.putdata([0, 1])
+        indexed.save(palette)
+        truecolour = self.root / "truecolour8.png"
+        self._write_png(truecolour, 2, 8, 2, [[10, 20, 30, 40, 50, 60]])
+        tiff = self.root / "truecolour8.tif"
+        self._write_tiff(tiff, 2, 1, 8, [10, 20, 30, 40, 50, 60])
+
+        for source, depth, first_pixel in (
+            (one_bit, 1, (255, 255, 255)),
+            (two_bit, 2, (255, 255, 255)),
+            (four_bit, 4, (255, 255, 255)),
+            (palette, 1, (255, 0, 0)),
+            (truecolour, 8, (10, 20, 30)),
+        ):
+            with self.subTest(source=source.name):
+                self.assertEqual(source.read_bytes()[24], depth)
+                tensor = read_image(source)
+                self.assertEqual(tensor.shape, (1, 3, 1, 2))
+                self.assertEqual(
+                    tuple(round(float(tensor[0, channel, 0, 0]) * 255) for channel in range(3)),
+                    first_pixel,
+                )
+        with self.subTest(source=tiff.name):
+            torch.testing.assert_close(
+                read_image(tiff),
+                torch.tensor([[[[10, 40]], [[20, 50]], [[30, 60]]]], dtype=torch.float32) / 255,
+            )
 
     def test_exif_orientation_is_applied_to_pixels(self):
         for image_format, suffix in (("JPEG", ".jpg"), ("PNG", ".png")):
