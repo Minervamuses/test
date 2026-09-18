@@ -6,7 +6,7 @@
 
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻礙 |
 |---|---|---|---|---|---|
-| 01 — EXIF 方向正確套用 | Not started | — | — | — | 無 |
+| 01 — EXIF 方向正確套用 | In progress | 2026-09-18 11:52 CST | — | 本檔活動紀錄 | 無 |
 | 02 — 來源位深明確拒絕 | Not started | — | — | — | 無 |
 | 03 — 文件對齊與整體驗收 | Not started | — | — | — | 無 |
 
@@ -24,7 +24,7 @@
 
 ## 活動紀錄
 
-尚無實作活動。本計劃於 2026-09-18 撰寫；所有 application 修改與檢查均未執行。
+本計劃於 2026-09-18 撰寫；實作於 2026-09-18 11:52 CST 啟動。
 
 計劃撰寫期間的唯讀重現觀察記於 `PLANS.md` 的「已確認基線」，那是調查證據，**不是**本計劃的實作證據；實作啟動後仍須在本檔重新記錄實際執行結果。
 
@@ -44,3 +44,24 @@
 - **下一步：** 依 PLANS.md 的下一個符合依賴條件的動作
 - **證據位置：** context、review、log、產物或 commit
 -->
+
+### 2026-09-18 11:52 CST — Phase 01：啟動與唯讀 preflight
+
+- **狀態：** Not started → In progress
+- **授權依據：** [phase-01](phases/phase-01-exif-orientation.md)，使用者於本次對話啟動實作並授權階段範圍內的程式、測試與文件修改。
+- **環境：** `/home/minervamuses/drone-image-analysis`，WSL2 Ubuntu、專案 `.venv`、Python 3.12.3、Pillow 12.3.0、torch 2.11.0+cu128，`torch.cuda.is_available()` = **False**（本階段不需 GPU）。
+- **實際變更：** 尚未修改 application 程式。先將既有未追蹤的 `fix/` 計劃 bundle 提交為 `5c4406a`，使 build-log 自此可追蹤。
+- **驗證（preflight，全部唯讀，臨時檔在 `$TMPDIR`）：**
+  - `.venv/bin/python -m unittest discover -s tests` → `Ran 29 tests ... OK`（2.7 s）。基線 29 測試通過。
+  - 重讀 `src/drone_sr/image_io.py:12-18`：守門順序與計劃撰寫時相同 —— mode 白名單（`:14`）→ `n_frames`（`:16`）→ `convert("RGB")` 與 tensor（`:18`）。
+  - `exif_transpose()` 對七種接受 mode（`1`/`L`/`LA`/`P`/`RGB`/`RGBA`/`CMYK`）皆成功並回傳新物件；無 EXIF 時像素位元組不變（安全 no-op）。
+  - 八個 Orientation 的 JPEG 實測：1 尺寸不變；2–4 尺寸 40×20 不變；5–8 由 40×20 轉為 20×40。套用後 tag 274 被刪除（Orientation 1 保留值 1，無作用），連呼叫兩次結果相同（不重複旋轉），來源檔 SHA-256 前後相同。
+  - **順序陷阱重新確認（非照抄）：** 多頁 TIFF `original: TiffImageFile n_frames=2` → `transposed: Image n_frames=1`。置於 `n_frames` 檢查之前會使多頁拒絕靜默失效。
+  - 回傳物件在 `with Image.open(...)` 結束後仍可使用（`size=(20, 40)` 可取像素）。
+- **與 PLANS.md「已確認基線」的差異（更正，追加不抹除）：** 基線稱「Pillow 已刪去 tag 274」，實際機制更精確：`TiffImagePlugin.load_end()`（`.venv/.../PIL/TiffImagePlugin.py:1328-1330`）先呼叫 `ImageOps.exif_transpose(self, in_place=True)` 再 `del self.tag_v2[274]`，而 tag 只在 **load 之後**消失；lazy open 當下 `getexif().get(274)` 仍讀得到 6。由於 `ImageOps.exif_transpose()` 自身第一行就呼叫 `image.load()`，TIFF 仍不會被旋轉兩次 —— 結論不變，機制記錄於此。
+- **對 phase-02 的下游影響：** `exif_transpose()` 會觸發 `load()`（PNG 的 `im.png` 於 load 後變 `None`），因此 phase-02 的來源位深檢查必須排在 `exif_transpose()` **之前**，與 PLANS.md「位深檢查須在任何觸發解碼／轉換的操作之前」一致。
+- **pre-fix 基線產物：** 以修正前程式將 repo 內 34 張真實圖片逐一 `read_image()` → `write_png()`，記錄輸出 SHA-256 於 `$TMPDIR/roundtrip-before.txt`（34 行，全部成功，來源雜湊皆未變）。修正後將以相同腳本比對，作為「既有 8-bit 圖片輸出位元組不變」的證據。
+- **限制：** 本環境無 GPU；本階段不涉及推論，不受影響。repo 內無任何帶 Orientation 的素材（34 張全為 8-bit RGB PNG ＋ 1 張 EXIF 為空的 JPEG），fixture 必須自建。
+- **阻礙：** 無。
+- **下一步：** phase-01 Red —— 先寫失敗測試（八方向逐像素、PNG eXIf、多頁 TIFF 回歸、來源雜湊）。
+- **證據位置：** 本檔；commit `5c4406a`。
