@@ -10,7 +10,7 @@
 | 02 — 度量模組與 lpips 依賴 | Complete | 2026-09-19 | 2026-09-19 | 52 項檢查通過；PSNR 48.1308 dB 對上手算；SSIM 與 naive 參考差 ≤1.3e-15；LPIPS 同圖 0.0 | 無（兩項 GPU 量測列入「待 GPU 補測」） |
 | 03 — SR 線接上未修改的 pipeline | Complete | 2026-09-19 | 2026-09-19 | 60 項檢查通過；真實樣本 SR 輸出 4056×3040 等同真值；drone_sr 五個檔雜湊未變 | 無（一項 GPU 量測列入「待 GPU 補測」） |
 | 04 — 執行器、run 目錄與逐張＋平均報告 | Complete | 2026-09-19 | 2026-09-19 | 94 項檢查通過；3 張真實樣本 report.md 完整；連跑兩次舊 run 逐位元未變 | 無 |
-| 05 — 真實小樣本驗收、成本量測與文件對齊 | In progress | 2026-09-19 | — | — | 無 |
+| 05 — 真實小樣本驗收、成本量測與文件對齊 | Complete | 2026-09-19 | 2026-09-19 | 5 張 CPU 驗收完成、目視檢查、文件對齊；交付數字待使用者 shell | 無（4 項列入「待 GPU 補測」） |
 
 狀態只用：`Not started`、`In progress`、`Blocked`、`Complete`。
 
@@ -43,6 +43,7 @@
 | 1 | 02 | LPIPS 對一張 4056×3040 真值與其 bicubic 版本的耗時、峰值 RSS、**峰值 VRAM**、device 名稱 | 沙箱 session 看不到 GPU（`/dev/dxg` 不存在、`torch.cuda.is_available()` 為 `False`），量到的是 CPU 數字 | phase-02「真實尺寸的 LPIPS 耗時、峰值 RSS 與峰值 VRAM 已在交付裝置上實測並記錄」 | 待補 |
 | 2 | 02 | 同一組輸入連跑兩次，LPIPS 在 **GPU 上**數值完全相同，且 `torch.backends.cudnn.benchmark` 為 `False` | 同上。CPU 的決定性結果不能代表 GPU 路徑（TF32、cuDNN 演算法選擇） | phase-02「同一決定性檢查已在 GPU 上通過且設了 `cudnn.benchmark = False`」 | 待補 |
 | 3 | 03 | SR 線在 GPU 上的單張端到端耗時、峰值 RSS、**峰值 VRAM**、device 名稱（LR 1014×760 → SR 4056×3040） | 沙箱 session 看不到 GPU，量到的是 CPU 數字 | phase-03「交付裝置（GPU）上的單張耗時、峰值 RSS 與峰值 VRAM 已量測」 | 待補 |
+| 4 | 05 | 在 GPU 上跑一次小樣本真實執行，產生**可對外引用**的 `report.md`；並回報 D 段的 bicubic 線 PSNR／SSIM 供跨裝置核對 | 同上 | phase-05「交接腳本已由使用者在自己的 shell 執行過一次，輸出已寫進 build-log 並標明量測環境」 | 待補 |
 
 狀態只用：`待補`、`已補（使用者 shell）`。已補的項目要在「活動紀錄」有對應的一筆，寫明確切命令、輸出與量測環境。
 
@@ -320,6 +321,100 @@
 - **阻塞：** 無。
 - **下一步：** 跑 CPU 小樣本驗收（`--limit 5 --seed 20260919`），再撰寫並煙霧測試交接腳本，然後寫文件。
 - **證據位置：** 本筆記錄；commit 見本階段 close 記錄的清單。
+
+## 2026-09-19 02:50 (CST) — Phase 05: close（沙箱部分完成；計劃整體尚未完成）
+
+- **狀態：** `In progress` → `Complete`（沙箱內可做的全部完成；4 項 GPU 項目依協定推遲，見「待 GPU 補測」）
+- **授權範圍：** [phases/phase-05-acceptance-and-docs.md](phases/phase-05-acceptance-and-docs.md)。
+- **變更：** 新增 `evaluation/gpu_checks/run_on_user_shell.sh` 與 `.py`、`evaluation/README.md`；修改 `README.md` 兩處範圍敘述；`report.py` 的解讀前提新增一條。
+
+### 真實小樣本驗收（交付前的 CPU 批次）
+
+- **命令：** `.venv/bin/python evaluation/run_evaluation.py --limit 5 --seed 20260919`
+- **run 目錄：** `evaluation/runs/20260918T184323Z`（211.5 MB、21 個檔）。耗時 **164.0 秒（32.8 秒／張）**，峰值 RSS **4418888 kB ≈ 4315 MiB**。納入 5 張、排除 0 張。
+- **樣本：** `0101`（12:02）、`0143`（12:04）、`0367`（12:14）、`0273`（13:10）、`0295`（13:11），涵蓋飛行前段與後段。
+- **逐張（量測環境：沙箱 session、CPU）：**
+  | 檔名 | SR PSNR | bic PSNR | SR SSIM | bic SSIM | SR LPIPS | bic LPIPS |
+  |---|---|---|---|---|---|---|
+  | `…0101_W.JPG` | 26.2358 | 26.5592 | 0.701985 | 0.714459 | 0.402201 | 0.541830 |
+  | `…0143_W.JPG` | 26.8098 | 27.1898 | 0.694485 | 0.711985 | 0.396463 | 0.529027 |
+  | `…0367_W.JPG` | 26.9408 | 27.2763 | 0.714666 | 0.733575 | 0.465174 | 0.595836 |
+  | `…0273_W.JPG` | 30.7658 | 31.6278 | 0.773990 | 0.796449 | 0.501497 | 0.598001 |
+  | `…0295_W.JPG` | 22.5553 | 23.3547 | 0.573336 | 0.601010 | 0.424618 | 0.589006 |
+- **平均與勝方：** PSNR SR `26.6615` vs bicubic `27.2016` → **bicubic 勝**（差 `0.5400`）；SSIM SR `0.691692` vs bicubic `0.711496` → **bicubic 勝**（差 `0.019803`）；LPIPS SR `0.437991` vs bicubic `0.570740` → **SR 勝**（差 `0.132750`）。**五張全部同向**：PSNR 與 SSIM 逐張皆 bicubic 勝，LPIPS 逐張皆 SR 勝。
+- **解讀（依 `GOALS.md`「已知會影響結論解讀的性質」）：** 這正是該節預告的組合。退化是純 bicubic，而模型是以真實複合退化訓練的 GAN，因此逐像素保真度輸、感知相似度贏是評估設定的已知性質，**不是實作錯誤，也沒有回頭調整實驗**。「SR 是否打贏一般放大」在本設定下的答案是：**逐像素保真度（PSNR／SSIM）沒有，感知相似度（LPIPS）有**。
+- **重現性：** 同命令的前一次執行（`20260918T183642Z`）三個平均值與本次**逐位數相同**。
+- **報告完整性：** 48 行表格內容，`grep -E "\| *\||None|nan|NaN"` **無命中**；標頭 33 欄全部有值，含 `git HEAD`、模型 SHA-256、兩個 LPIPS 權重雜湊、分欄的裝置資訊與解讀前提。
+
+### 目視檢查（實際看過，含不利於 SR 的觀察）
+
+兩張圖、每張四個版本（真值／LR 以 4× nearest 放大對齊／bicubic／SR），100% 檢視：
+
+- **`DJI_20230127120228_0101_W`（開闊海面、稀疏浪花）：** SR 明顯比 bicubic 銳利，浪花點清晰得多。**但**這些點帶有真值沒有的**橙褐色偏**（真值為近中性白），且部分較暗的點在 SR 中**直接消失**。
+- **`DJI_20230127131153_0295_W`（密集顆粒狀岸邊紋理）：** **SR 比 bicubic 明顯更差。** 真值有整片細密顆粒紋理，bicubic 雖模糊但保留了紋理場；SR 把其中大片抹成**平坦色塊**，看來是把細紋理當成雜訊移除，左側深色岩緣也被抹平。
+- **結論：**「SR 比較銳利」不是一致成立的敘述。稀疏高對比小目標上 SR 勝，密集細紋理上 SR 反而更不忠實。此觀察已寫入報告的「解讀前提」（commit `b05ff5f`）與 `evaluation/README.md`。
+
+### 全量 738 張的成本估算（**未執行**）
+
+依本次實測（沙箱 CPU、32.8 秒／張；產物體積隨畫面內容而異，實測單張 52.7 MB、5 張共 211.5 MB 即 42.3 MB／張）：
+
+| | 時間 | 磁碟 |
+|---|---|---|
+| 5 張（預設） | 164 秒 | 212 MB |
+| **738 張（CPU）** | **約 6.7 小時**（24206 秒） | **約 31–39 GB** |
+| 738 張（GPU） | **未量測。** SR 與 LPIPS 會快很多，但 SSIM（8.7 秒／張）、PSNR 與 I/O 恆在 CPU，不會快一個量級 | 同上 |
+
+**全量未執行，也不在本計劃授權內。** 若要跑需使用者另外同意；屆時沿用同一支執行器與同一份固定約定，並在本檔追加紀錄。
+
+### 交接腳本
+
+- `evaluation/gpu_checks/run_on_user_shell.sh`（＋ `run_on_user_shell.py`）。一次做完清單四項：LPIPS 全尺寸成本與決定性、SR 線成本與決定性、小樣本真實執行與 `report.md`、跨裝置核對區塊。
+- **已依「腳本的驗證責任」在沙箱內以 CPU 煙霧測試**（`--limit 1`）：exit 0，四段輸出齊全，LPIPS `2.52` 秒、SR 線 `13.94` 秒、兩者 `DETERMINISTIC True`、峰值 RSS `4369 MiB`、VRAM 顯示 `n/a`，且標頭正確印出「CPU <-- NOT the delivery device」。**該次執行是煙霧測試，不是交付證據。**
+- **跨裝置核對的設計：** bicubic 線是純 Pillow CPU、PSNR／SSIM 恆在 CPU float64，因此同一批影像的 **bicubic 線 PSNR／SSIM 在 GPU 批次應與本次 CPU 批次逐位數相同**；只有 SR 線的數字與 LPIPS 允許不同。腳本沿用 `--seed 20260919 --limit 5`，選到的正是本次同樣五張（已驗證 seed 可重現）。煙霧測試對 `0273` 印出 bicubic PSNR `31.627796967364468`，與本批次報告的 `31.6278` 一致。
+
+### 文件
+
+- 新增 `evaluation/README.md`（146 行）。**其中每個命令都實際跑過**：`pip install -r evaluation/requirements.txt`（全部 already satisfied，pip freeze diff 為空）、`run_evaluation.py --limit 5 --seed 20260919`、`unittest discover -s evaluation`、兩支 `gpu_checks` 腳本。
+- `README.md` 兩處對齊（commit `422db8b`，只改這兩處）：
+  - 第 11 行附近「不計算 PSNR／SSIM」→ 改為「**本 pipeline 本身**不計算任何畫質指標」，並指向 `evaluation/`，說明它只 import 不改動、產物只寫在 `evaluation/runs/`。
+  - 第 156 行附近「沒有配對且對齊的高解析度真值」→ 保留該事實（仍然成立），補上 `evaluation/` 以**自造真值**繞開它的方式、數字只在純 bicubic 退化前提下成立、以及五張樣本的實測結論。
+
+### 逐條核對 `GOALS.md` 的成功條件
+
+| 成功條件 | 狀態 | 證據 |
+|---|---|---|
+| 逐張＋平均的 PSNR／SSIM／LPIPS，涵蓋兩條線 | ✅ | `runs/20260918T184323Z/report.md` |
+| 兩條線輸入可觀察地來自磁碟上同一個 LR PNG；bicubic 無路徑碰原圖 | ✅ | `test_bicubic.py` 的覆寫檢查與獨立重算檢查；runner 每張只寫一個 `lr/` 檔、兩線都讀它 |
+| 降採樣與放大方法固定且完整寫進報告 | ✅ | 報告標頭「降採樣與放大演算法」「倍率」「Pillow 版本」「mod-crop 規則」 |
+| 只有一次解碼與一次降採樣，全程 PNG | ✅ | 契約實作；所有中間檔 PNG magic 逐檔驗證 |
+| 連續兩次執行產生兩份獨立紀錄，先前紀錄未被更動 | ✅ | `20260918T181724Z` 的 13 檔在第二次執行後大小／mtime／SHA-256 全同 |
+| 度量實作的正確性有觀察證據 | ✅ | 六組性質檢查的實測數值＋naive 逐視窗交叉核對（≤1.3e-15） |
+| 受保護路徑執行前後無變動 | ✅ | 761 筆雜湊清單與 session 起始快照 `diff` 相同；`git status --short` 對受保護路徑為空 |
+| 尚未驗證的部分明確列為限制 | ✅ | 見下 |
+
+### 未驗證項（明列，不宣稱完成）
+
+1. **全量 738 張未執行。** 成本已估算並回報。
+2. **GPU 路徑的所有資源數字與決定性未取得。** 本次全部數字為沙箱 CPU 批次。見「待 GPU 補測」1–4 項。
+3. **PNG 原圖僅以合成 fixture 驗證**，`input/` 目前 0 張 PNG。
+4. **SSIM 無第三方交叉核對**（`scikit-image`／`torchmetrics` 不在授權內）；以獨立 naive 重新推導代替，差距 ≤1.3e-15。這證明快速路徑算的是預期定義，不證明該定義與其他工具一致。
+5. **樣本場景單一：** 5 張全部來自同一次飛行、同一片海域。不能外推到其他場景。
+6. **真值來自 JPEG**（DJI MPO），本身已是有損解碼結果。
+7. **RGB 而非 Y 通道**，數值不可直接與論文對照。
+8. **同名 run 目錄的序號路徑**只在單元檢查中以人為配置驗證，真實 CLI 的兩次執行落在不同秒數，未觸發。
+9. **LPIPS 只驗證 `net='alex'`。**
+
+### 不變式
+
+761 筆雜湊清單與 session 起始完全相同；`git status --short src tests pyproject.toml requirements-wsl.txt models input output` 為空；`git status --short` 僅餘原有十二個沙箱裝置檔。評估檢查 **94 項 `OK`**，既有測試 **33 項 `OK`**。
+
+### 計劃整體狀態
+
+**尚未完成。** `PLANS.md`「整體完成標準」九條中八條成立，剩下一條未成立：**「待 GPU 補測」清單未清空**（4 項）。依「GPU 交接協定」，這不是 `Blocked`，而是等待一次預期中的交接。
+
+- **阻塞：** 無。
+- **下一步：** 請使用者在自己的 WSL shell 執行 `bash evaluation/gpu_checks/run_on_user_shell.sh` 並把輸出貼回。收到後由 agent 依協定第 5 步寫入本檔、標明「量測環境：使用者 shell」、勾掉清單四項，屆時計劃才可標為整體完成。
+- **證據位置：** 本筆記錄；`runs/20260918T184323Z/report.md`；`evaluation/README.md`。本階段 commit 依序為 `4fdb27e`（`docs:` start）、`b05ff5f`（`docs:` 報告解讀前提補上目視發現）、`141ea1c`（`chore:` 交接腳本）、`db47dab`（`docs:` evaluation/README.md）、`422db8b`（`docs:` 對齊 README.md），close 記錄本身另成一顆。
 
 <!-- 追加重要事件時用這個格式：
 
