@@ -7,7 +7,7 @@
 | 階段 | 狀態 | 開始 | 完成 | 證據 | 阻塞 |
 |---|---|---|---|---|---|
 | 01 — 固定退化契約與 bicubic 基線 | Complete | 2026-09-19 | 2026-09-19 | 24 項檢查通過；真實樣本尺寸鏈 4056×3040 → 1014×760 → 4056×3040；bicubic 與獨立重算逐位元相同 | 無 |
-| 02 — 度量模組與 lpips 依賴 | Not started | — | — | — | 無 |
+| 02 — 度量模組與 lpips 依賴 | In progress | 2026-09-19 | — | — | 等待 scipy／tqdm 授權（見 01:22 記錄） |
 | 03 — SR 線接上未修改的 pipeline | Not started | — | — | — | 無 |
 | 04 — 執行器、run 目錄與逐張＋平均報告 | Not started | — | — | — | 無 |
 | 05 — 真實小樣本驗收、成本量測與文件對齊 | Not started | — | — | — | 無 |
@@ -137,6 +137,29 @@
 - **阻塞：** 無。本階段不需要 GPU，未產生「待 GPU 補測」項目。
 - **下一步：** phase-02（度量模組與 `lpips` 依賴）。它與 01 互相獨立，依賴皆已滿足。
 - **證據位置：** 本筆記錄；run 目錄 `evaluation/runs/20260918T171502Z/`（未進版本控制）。本階段 commit 依序為 `05d3c9f`（`docs:` start）、`b48088a`（`test:` red，24 項、4 個 import 錯誤）、`ea72bc8`（`feat:` sources）、`8d9f910`（`feat:` degradation）、`1b7ac51`（`feat:` bicubic，本階段核心）、`e7f030a`（`feat:` runs）、`b61477b`（`refactor:` 移除已棄用 API），close 記錄本身另成一顆。
+
+## 2026-09-19 01:22 (CST) — Phase 02: preflight
+
+- **狀態：** `Not started` → `In progress`
+- **授權範圍：** [phases/phase-02-metrics-and-lpips.md](phases/phase-02-metrics-and-lpips.md)「實作與驗證計劃 / Preflight」。
+- **本階段範圍（複述）：** 以 torch 自行實作 PSNR 與 SSIM、安裝 `lpips` 並包成穩定介面、建立 `evaluation/requirements.txt`、六組性質檢查、真實尺寸 LPIPS 資源實測（可推遲至 GPU 清單）。
+- **非目標（複述）：** 不做退化／SR／報告；不裝 `lpips` 以外的套件；不動 `pyproject.toml` 與 `requirements-wsl.txt`；不加 Y 通道或 MS-SSIM。
+- **停止條件（複述）：** 網路取不到套件或權重；`lpips` 需要與現有 torch 衝突的相依；需要第二個新套件；LPIPS 在真實尺寸 OOM 或單張數分鐘。**不得**改用縮圖後再算 LPIPS。
+- **驗證（實際觀察）：**
+  - `.venv/bin/python -c "import lpips"` → `ModuleNotFoundError`。確認目前確實沒有。
+  - 安裝前版本：`torch 2.11.0+cu128`、`torchvision 0.26.0+cu128`、`pillow 12.3.0`、`spandrel 0.4.2`、`numpy 2.5.3`。完整 `pip list --format=freeze`（37 筆）存於 `$TMPDIR/baseline/pip-before.txt`。
+  - `scipy`、`tqdm`、`skimage` 皆 **MISSING**。
+  - 網路可用：`curl https://pypi.org/simple/lpips/` → `http=200`（0.94 秒）。
+  - **`pip install --dry-run --report - lpips` 在 180 秒後被 `timeout` 殺掉（exit 143），全程無輸出。** 未進一步重試；改以 PyPI JSON API 與 wheel 內容做唯讀確認，成本遠低於讓 pip 解析含 torch 的相依樹。
+- **preflight 的實質發現一（`lpips` 的相依）：** PyPI metadata（`https://pypi.org/pypi/lpips/json`）顯示 `lpips 0.1.4` 的 `requires_dist` 為 `torch>=0.4.0`、`torchvision>=0.2.1`、`numpy>=1.14.3`、**`scipy>=1.0.1`**、**`tqdm>=4.28.1`**。前三者已滿足且版本遠高於下限，**安裝不會動到既有 torch／torchvision**；後兩者是 venv 內尚不存在的套件。
+  - 檢查 wheel 原始碼確認這不是可繞過的軟相依：`lpips/__init__.py:10` 為模組層級的 `from lpips.trainer import *`，而 `lpips/trainer.py` 在模組層級 `from scipy.ndimage import zoom` 與 `from tqdm import tqdm`。因此 **`import lpips` 硬性需要 scipy 與 tqdm**。
+  - `skimage`、`rawpy`、`cv2` 的 import 全部位於函式內（`__init__.py` 第 24、28、44、57、76、80、88 行皆有縮排），不影響 import。
+  - **這觸及 `PLANS.md`「停止並取得所需授權」的「需要 `lpips` 以外的任何新依賴」。** 依該條停止並向使用者確認，不自行安裝。詳見下一筆記錄。
+- **preflight 的實質發現二（LPIPS 權重的來源分兩處）：** `lpips-0.1.4-py3-none-any.whl`（53763 bytes、SHA-256 `fd537af5828b69d2e6ffc0a397bd506dbc28ca183543617690844c08e102ec5e`、BSD、`https://github.com/richzhang/PerceptualSimilarity`）**本身就內含線性層權重** `lpips/weights/v0.1/alex.pth`（6009 bytes）。因此需要另外下載的只有 torchvision 的 AlexNet backbone 權重。這使「權重取不到」的風險小於計劃撰寫時的預期。
+- **限制：** 本筆為唯讀 preflight 與網路唯讀查詢，尚未安裝任何套件，`.venv` 未變動。AlexNet backbone 權重尚未下載，其 URL／大小／SHA-256 尚未記錄。
+- **阻塞：** `lpips` 的安裝等待使用者對 scipy 與 tqdm 的決定。PSNR 與 SSIM 不依賴此決定，先行實作。
+- **下一步：** 先完成 PSNR 與 SSIM 及其性質檢查（不依賴該決策），再就 scipy／tqdm 取得授權。
+- **證據位置：** 本筆記錄；`$TMPDIR/baseline/pip-before.txt`。commit 見本階段 close 記錄的清單。
 
 <!-- 追加重要事件時用這個格式：
 
