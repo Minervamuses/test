@@ -38,12 +38,14 @@
 
 交付裝置是 GPU，但 coding agent 的沙箱 session 看不到它。依 `PLANS.md`「GPU 交接協定」，需要 GPU 的項目集中在此，**不標 `Blocked`**。清單清空前，計劃不得標為整體完成。
 
+**清單已於 2026-09-19 11:06 (CST) 全數清空**，四項皆由使用者在自己的 WSL shell 執行 `evaluation/gpu_checks/run_on_user_shell.sh` 補上。詳見同日的活動紀錄。
+
 | # | 來源階段 | 要量什麼 | 沙箱內為何做不到 | 對應驗收條件 | 狀態 |
 |---|---|---|---|---|---|
-| 1 | 02 | LPIPS 對一張 4056×3040 真值與其 bicubic 版本的耗時、峰值 RSS、**峰值 VRAM**、device 名稱 | 沙箱 session 看不到 GPU（`/dev/dxg` 不存在、`torch.cuda.is_available()` 為 `False`），量到的是 CPU 數字 | phase-02「真實尺寸的 LPIPS 耗時、峰值 RSS 與峰值 VRAM 已在交付裝置上實測並記錄」 | 待補 |
-| 2 | 02 | 同一組輸入連跑兩次，LPIPS 在 **GPU 上**數值完全相同，且 `torch.backends.cudnn.benchmark` 為 `False` | 同上。CPU 的決定性結果不能代表 GPU 路徑（TF32、cuDNN 演算法選擇） | phase-02「同一決定性檢查已在 GPU 上通過且設了 `cudnn.benchmark = False`」 | 待補 |
-| 3 | 03 | SR 線在 GPU 上的單張端到端耗時、峰值 RSS、**峰值 VRAM**、device 名稱（LR 1014×760 → SR 4056×3040） | 沙箱 session 看不到 GPU，量到的是 CPU 數字 | phase-03「交付裝置（GPU）上的單張耗時、峰值 RSS 與峰值 VRAM 已量測」 | 待補 |
-| 4 | 05 | 在 GPU 上跑一次小樣本真實執行，產生**可對外引用**的 `report.md`；並回報 D 段的 bicubic 線 PSNR／SSIM 供跨裝置核對 | 同上 | phase-05「交接腳本已由使用者在自己的 shell 執行過一次，輸出已寫進 build-log 並標明量測環境」 | 待補 |
+| 1 | 02 | 同左 | 同左 | 同左 | **已補（使用者 shell）** 2026-09-19 11:06 — 0.49 s、峰值 VRAM allocated 3085 MiB／reserved 3288 MiB、峰值 RSS 1665 MiB、`NVIDIA GeForce RTX 5070 Ti Laptop GPU` |
+| 2 | 02 | 同左 | 同左 | 同左 | **已補（使用者 shell）** 2026-09-19 11:06 — 連跑三次皆 `0.543698787689209`，`cudnn.benchmark` 為 `False` |
+| 3 | 03 | 同左 | 同左 | 同左 | **已補（使用者 shell）** 2026-09-19 11:06 — 2.69 s、峰值 VRAM allocated 307 MiB／reserved 320 MiB、峰值 RSS 2146 MiB、`cuda:0`；重跑輸出逐位元相同 |
+| 4 | 05 | 同左 | 同左 | 同左 | **已補（使用者 shell）** 2026-09-19 11:06 — `runs/20260919T030610Z/report.md`，5 張、84.3 s、16.9 s／張；D 段十個值與 CPU 批次逐位元相同 |
 
 狀態只用：`待補`、`已補（使用者 shell）`。已補的項目要在「活動紀錄」有對應的一筆，寫明確切命令、輸出與量測環境。
 
@@ -415,6 +417,95 @@
 - **阻塞：** 無。
 - **下一步：** 請使用者在自己的 WSL shell 執行 `bash evaluation/gpu_checks/run_on_user_shell.sh` 並把輸出貼回。收到後由 agent 依協定第 5 步寫入本檔、標明「量測環境：使用者 shell」、勾掉清單四項，屆時計劃才可標為整體完成。
 - **證據位置：** 本筆記錄；`runs/20260918T184323Z/report.md`；`evaluation/README.md`。本階段 commit 依序為 `4fdb27e`（`docs:` start）、`b05ff5f`（`docs:` 報告解讀前提補上目視發現）、`141ea1c`（`chore:` 交接腳本）、`db47dab`（`docs:` evaluation/README.md）、`422db8b`（`docs:` 對齊 README.md），close 記錄本身另成一顆。
+
+## 2026-09-19 11:06 (CST) — GPU 交接回收：清單清空，計劃整體完成
+
+- **狀態：** 五個階段維持 `Complete`；「待 GPU 補測」四項全部 `已補（使用者 shell）`。**計劃整體完成。**
+- **授權範圍：** `PLANS.md`「GPU 交接協定」第 4–5 步。
+- **量測環境：使用者的一般 WSL shell（非沙箱）。** `torch.cuda.is_available()` → `True`，device `NVIDIA GeForce RTX 5070 Ti Laptop GPU`，總 VRAM **12227 MiB**，`torch 2.11.0+cu128`，`cudnn.benchmark` → `False`。
+- **命令：** `bash evaluation/gpu_checks/run_on_user_shell.sh`（預設 `--limit 5 --seed 20260919`）。run 目錄 `evaluation/runs/20260919T030610Z`（212 MB），log 於同目錄 `gpu-checks.log`。
+- **AlexNet backbone 首次下載到使用者機器：** `https://download.pytorch.org/models/alexnet-owt-7be5be79.pth` → `~/.cache/torch/hub/checkpoints/`，233 MB，由 torchvision 的 `check_hash` 驗證。與沙箱記錄的 URL 與雜湊同一份。
+
+### 清單項目 1 — LPIPS 全尺寸資源（4056×3040）
+
+- 耗時 **0.49 秒**；峰值 VRAM **allocated 3085 MiB／reserved 3288 MiB**；峰值 RSS **1665 MiB**。
+- **`GOALS.md`「未解問題」所擔心的 OOM 沒有發生。** 3288 MiB 佔 12227 MiB 的 **27%**，餘裕充足。LPIPS 是整個流程的 VRAM 主導者（SR 線只用 307 MiB），但仍遠低於卡的容量。
+- 對照沙箱 CPU 的 2.52–4.74 秒：GPU 快約 5–10 倍。兩者屬**不同批次**，各自標明環境，不互相取代。
+
+### 清單項目 2 — LPIPS 在 GPU 上的決定性
+
+- 同一組輸入連跑三次：`0.543698787689209`、`0.543698787689209`、`0.543698787689209` → **完全相同**。`cudnn.benchmark` 讀回 `False`。
+- 注意 GPU 值 `0.543698787689209` 與沙箱 CPU 的 `0.5436732172966003` **不同**（差約 2.6e-5）。這正是 `GOALS.md`「固定的度量約定」第 6 條預期的跨裝置浮點差異，兩者不可並列比較。
+
+### 清單項目 3 — SR 線在 GPU 上的資源與決定性
+
+- LR 1014×760 → SR 4056×3040：耗時 **2.69 秒**；峰值 VRAM **allocated 307 MiB／reserved 320 MiB**；峰值 RSS **2146 MiB**。重跑一次輸出**逐位元相同** → GPU 上決定性成立。
+- 對照沙箱 CPU 的 11.2–13.9 秒：GPU 快約 **4–5 倍**。
+
+### 清單項目 4 — GPU 上的小樣本真實執行（交付數字）
+
+- `evaluation/runs/20260919T030610Z/report.md`，5 張、0 排除，批次 **84.3 秒（16.9 秒／張）**，峰值 VRAM 3085／3288 MiB，峰值 RSS 4243 MiB。報告標頭 `git HEAD` = `6dbb6d6c…`。
+- **交付數字（量測環境：使用者 shell、`cuda:0`）：**
+  | 指標 | SR | bicubic | 勝方 | 差距 |
+  |---|---|---|---|---|
+  | PSNR | `26.6618` | `27.2016` | **bicubic** | 0.5397 |
+  | SSIM | `0.691711` | `0.711496` | **bicubic** | 0.019784 |
+  | LPIPS | `0.438015` | `0.570722` | **SR** | 0.132707 |
+- 逐張方向與 CPU 批次一致：PSNR／SSIM 五張全部 bicubic 勝，LPIPS 五張全部 SR 勝。
+- 報告完整性：`grep -E "\| *\||None|nan|NaN"` **無命中**；裝置欄位正確顯示 `SR 線 device: cuda:0`、`LPIPS device: cuda:0`、`PSNR／SSIM device: CPU、float64`。
+
+### 跨裝置核對（phase-05 preflight 設計的檢查，結果成立）
+
+依 `context/phase-04-context.md`，只有 SR 線與 LPIPS 會隨裝置改變；bicubic 線的放大是純 Pillow CPU、PSNR 與 SSIM 恆在 CPU float64。實測驗證：
+
+- **十個值逐位元相同。** 以 CPU 批次（`20260918T184323Z`）自己的 PNG 重算 bicubic 線的 PSNR 與 SSIM（float64 全精度），與 GPU 批次 D 段回報的十個值逐一 `==` 比較 → **全部 `True`**，例如 `0101` 的 PSNR `26.55922168798955`、SSIM `0.7144594897295856` 兩邊完全一致。
+- **產物層級也一致：** 兩個 run 的 `lr/` 五個 PNG 與 `bicubic/` 五個 PNG **SHA-256 全部相同**；`sr/` 五個 PNG **全部不同**。
+- **bicubic 線的 LPIPS 則不同**（CPU `0.570740` vs GPU `0.570722`），儘管 bicubic PNG 位元相同——因為 LPIPS 本身跑在裝置上。
+- 這三項合起來，把「跨裝置只有 SR 與 LPIPS 會變」從一個說法變成**直接觀察到的證據**，也回頭證實了 phase-04 那次標頭修正（`63d1e2c`）是必要的：沒有它，這份 GPU 報告會把四個實際在 CPU 算出的數字標成 GPU。
+
+### 全量 738 張的成本（依 GPU 實測重估，**仍未執行**）
+
+| | 時間 | 磁碟 |
+|---|---|---|
+| 5 張（本次） | 84.3 秒 | 212 MB |
+| **738 張（GPU）** | **約 3.5 小時**（12472 秒） | **約 30–38 GB** |
+| 738 張（CPU，對照） | 約 6.7 小時 | 同上 |
+
+GPU 只快約 **1.9 倍**，不是一個量級——因為 SSIM（約 8.7 秒／張）、PSNR 與影像 I/O 恆在 CPU，那部分不隨裝置改變。**全量仍未執行，也仍不在本計劃授權內。**
+
+### 不變式（使用者執行後複查）
+
+`input/`、`output/`、`models/`、`src/**.py`、`tests/**.py`、`pyproject.toml`、`requirements-wsl.txt` 共 **761 個檔案**，數量與 session 起始相同；其中 16 個關鍵檔案逐一比對 session 起始記錄的 SHA-256，**全部未變**。`git status --short` 對受保護路徑為空。評估檢查 **94 項 `OK`**，既有測試 **33 項 `OK`**。
+
+### `PLANS.md`「整體完成標準」逐條
+
+| 條目 | 狀態 |
+|---|---|
+| 五個階段 `Complete` 且有觀察證據 | ✅ |
+| 「待 GPU 補測」清單已清空，每項標明量測環境 | ✅ **本次補上** |
+| `GOALS.md` 每項成功條件都有觀察依據 | ✅（phase-05 close 逐條列出） |
+| 兩條線對等性有直接證據 | ✅ 覆寫檢查、獨立重算、跨裝置 PNG 位元相同 |
+| 一次真實小樣本執行，數字與環境都在 `report.md` | ✅ `20260919T030610Z`（GPU，交付）、`20260918T184323Z`（CPU） |
+| 連續兩次執行產生兩個獨立 run 目錄，先前紀錄未變 | ✅ |
+| 受保護路徑經雜湊或 `git status` 確認未變動 | ✅ |
+| `README.md` 範圍敘述與實際一致 | ✅ commit `422db8b` |
+| 剩餘限制明確記錄 | ✅ 見下 |
+| 完成即停止 | ✅ |
+
+### 仍未驗證（不因計劃完成而消失）
+
+1. **全量 738 張未執行**（約 3.5 小時／30–38 GB，需另外授權）。
+2. **PNG 原圖僅以合成 fixture 驗證**，`input/` 目前 0 張 PNG。
+3. **SSIM 無第三方交叉核對**；以獨立 naive 逐視窗重新推導代替（差 ≤1.3e-15）。
+4. **樣本場景單一：** 5 張全部來自同一次飛行、同一片海域。
+5. **真值來自 JPEG**（DJI MPO），本身已是有損解碼結果。
+6. **RGB 而非 Y 通道**，不可直接與論文對照。
+7. **同名 run 目錄的序號路徑**只在單元檢查中驗證，真實執行未觸發。
+8. **LPIPS 只驗證 `net='alex'`。**
+
+- **阻塞：** 無。
+- **下一步：** 無。計劃在此停止，不展開畫質優化、模型比較或全量執行。
+- **證據位置：** 本筆記錄；`runs/20260919T030610Z/report.md` 與 `gpu-checks.log`（交付數字）；`runs/20260918T184323Z/report.md`（CPU 對照批次）。
 
 <!-- 追加重要事件時用這個格式：
 
