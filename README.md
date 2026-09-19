@@ -6,19 +6,31 @@
 
 ### 第一次 clone 與安裝
 
+此 repo 公開可讀，lab server 使用 HTTPS clone／pull 不需要設定 GitHub SSH 金鑰。先只執行 clone，成功才切換目錄：
+
 ```bash
-git clone git@github.com:Minervamuses/test.git
-cd test
+git clone https://github.com/Minervamuses/test.git && cd test
+```
+
+確認目前已在 `test/` repo 根目錄，再複製下面的完整安裝區塊，包含最外層括號。命令先檢查目錄，再於子 shell 內安裝；任何一步失敗就停止。若上一段 clone 失敗，不要繼續安裝。
+
+```bash
+(
+set -e
+test -f lab/run.sh
+test -f requirements-wsl.txt
 python3.12 -m venv .venv
-source .venv/bin/activate
-python -m pip install --no-deps --no-cache-dir --progress-bar off \
+.venv/bin/python -m pip install --no-deps --no-cache-dir --progress-bar off \
   'https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl' \
   'https://download.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl'
-python -m pip install --no-cache-dir --only-binary=:all: --progress-bar off -r requirements-wsl.txt
-python -m pip install --no-deps --no-build-isolation -e .
-python -m pip install -r evaluation/requirements.txt
-python -m pip check
+.venv/bin/python -m pip install --no-cache-dir --only-binary=:all: --progress-bar off -r requirements-wsl.txt
+.venv/bin/python -m pip install --no-deps --no-build-isolation -e .
+.venv/bin/python -m pip install -r evaluation/requirements.txt
+.venv/bin/python -m pip check
+)
 ```
+
+安裝成功後，於同一個 repo 根目錄繼續「準備正式權重」。若 `test/` 已經存在，請先進入既有 repo 並 `git pull --ff-only origin main`，不要重複 clone。
 
 沿用原專案的 Linux x86_64／Python 3.12／CUDA 12.8 套件，不修改依賴版本。套件下載約 4 GB，首次 LPIPS 另下載約 233 MB 的 AlexNet，請預留約 15 GB 安裝空間。安裝時間受網路影響，可能超過十分鐘。Server 需能連線 GitHub、PyTorch、NVIDIA 套件站與 PyPI。
 
