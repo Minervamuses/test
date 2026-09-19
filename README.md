@@ -1,5 +1,95 @@
 # Drone Image Super-Resolution
 
+## Lab server 測試副本
+
+此 repo 為 [`Minervamuses/drone-image-analysis`](https://github.com/Minervamuses/drone-image-analysis) 的測試副本，程式與既有測試來自 commit `725605585148581eb679836310befdf5612e2499`。只補上本節、`lab/run.sh` 與一張真實小樣本；下方原專案說明保留作為背景。
+
+### 第一次 clone 與安裝
+
+```bash
+git clone git@github.com:Minervamuses/test.git
+cd test
+python3.12 -m venv .venv
+source .venv/bin/activate
+python -m pip install --no-deps --no-cache-dir --progress-bar off \
+  'https://download.pytorch.org/whl/cu128/torch-2.11.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl' \
+  'https://download.pytorch.org/whl/cu128/torchvision-0.26.0%2Bcu128-cp312-cp312-manylinux_2_28_x86_64.whl'
+python -m pip install --no-cache-dir --only-binary=:all: --progress-bar off -r requirements-wsl.txt
+python -m pip install --no-deps --no-build-isolation -e .
+python -m pip install -r evaluation/requirements.txt
+python -m pip check
+```
+
+沿用原專案的 Linux x86_64／Python 3.12／CUDA 12.8 套件，不修改依賴版本。套件下載約 4 GB，首次 LPIPS 另下載約 233 MB 的 AlexNet，請預留約 15 GB 安裝空間。安裝時間受網路影響，可能超過十分鐘。Server 需能連線 GitHub、PyTorch、NVIDIA 套件站與 PyPI。
+
+使用者提供的 server 是 Ubuntu 24.04.2、Python 3.12.3、glibc 2.39，四張 RTX A6000（每張 49140 MiB）、driver 595.58.03。**cgroup 記憶體上限為 60 GiB**，不能將 `free -h` 顯示的 377 GiB 當成本程序可用量。測試預設選一張 GPU；CUDA wheel 是否能在該 server 實際執行，由下方入口的 GPU 檢查確認。
+
+### 準備正式權重
+
+Git 不包含模型權重。若已有正式 Compact 權重，將它放在 `models/model.pth`；否則在 repo 根目錄執行下面區塊，從原專案已指定的官方來源下載約 4.9 MB 並核對已記錄的 SHA-256。已有檔案會先核對，不覆寫；下載失敗不會留下名為 `model.pth` 的半成品。
+
+```bash
+.venv/bin/python - <<'PY'
+import hashlib
+from pathlib import Path
+from urllib.request import urlopen
+
+target = Path("models/model.pth")
+expected = "8dc7edb9ac80ccdc30c3a5dca6616509367f05fbc184ad95b731f05bece96292"
+url = "https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesr-general-x4v3.pth"
+if target.exists():
+    data = target.read_bytes()
+else:
+    with urlopen(url, timeout=120) as response:
+        data = response.read()
+if hashlib.sha256(data).hexdigest() != expected:
+    raise SystemExit("Checkpoint SHA-256 mismatch; no file was written.")
+if not target.exists():
+    with target.open("xb") as stream:
+        stream.write(data)
+print("models/model.pth: SHA-256 OK")
+PY
+```
+
+### 執行與後續 pull
+
+```bash
+# 第一次安裝與準備權重後：指定當下獲分配的 GPU 編號
+CUDA_VISIBLE_DEVICES=0 bash lab/run.sh
+
+# 後續更新同一個 lab clone
+git pull --ff-only origin main
+CUDA_VISIBLE_DEVICES=0 bash lab/run.sh
+```
+
+入口依序確認 CUDA、執行 `pip check`、既有 `tests/` 與 `evaluation/` 兩套檢查，再呼叫既有 GPU 交接程式。**CUDA 不可用會停止，不會改成 CPU 跑完整流程。** CPU 的數值計算預設使用 8 個 OpenMP／MKL threads，可透過 `OMP_NUM_THREADS`／`MKL_NUM_THREADS` 覆寫。模型與 LPIPS 使用可見 GPU 的第 0 張，並沒有多 GPU 平行處理。
+
+預設使用 `lab/sample/` 的一張 **512×512** 圖，評估時先降採樣成 128×128，再還原成 512×512。GPU 交接程式原有的「full size」字樣在此是這張 512×512 樣本的尺寸，**不是 4056×3040 大圖驗證**。它會檢查 LPIPS 與 SR 重複執行的決定性並產生一次真實評估。請確認 log 中兩項 `DETERMINISTIC` 都是 `True`，且 `measured` 是 1、`excluded` 是 0；既有交接程式不會因決定性為 False 或部分圖片失敗而一律回傳非零退出碼。
+
+若圖片已另行上傳 server，可改用自己的資料夾：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 bash lab/run.sh --input /path/to/images --limit 1
+```
+
+`--limit` 限制最後的評估批次；既有交接程式還會先用該資料夾依檔名排序的第一張做 LPIPS／SR 重複檢查。先以一張確認耗時與結果，再決定是否增加數量。4.7 GB 的本機原始資料集與歷次輸出沒有推上此 repo，`git pull` 不會取得它們。
+
+結果放在 `evaluation/runs/<timestamp>/`，包含 `gpu-checks.log`、`report.md`、`hr/`、`lr/`、`bicubic/`、`sr/`。請回傳 log 與 report，並檢視對應影像；小樣本通過不代表大圖效能或真實低解析影像的畫質已驗證。每次執行建立新目錄，舊結果保留且不納入 Git。
+
+### 小樣本來源
+
+`lab/sample/whaledrone_seek10s_x1536_y768_512.png` 為既有驗證使用的原始 PNG，263,958 bytes，SHA-256 `ad7d8815928ea78bb2243af8639541216e83a7444d78272d91451a2d7dd63faa`。來源為 [WhaleDrone: Los Cabos Humpback Whale UAV Dataset](https://huggingface.co/datasets/LucieLprt-Dvldr/WhaleDrone)，作者 Lucie Laporte-Devylder；資料集另列 Esther Jimenez、Hiram Rosales Nanduca 為共同貢獻者。依資料集的 [CC BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/) 授權，用於非商業研究測試並保留署名。
+
+本專案的處理為：從 `DJI_20260114193309_0004_V.MP4` 第 10 秒取 RGB 畫面，裁切 `(x=1536, y=768, width=512, height=512)` 後存成 PNG。影片 SHA-256 為 `8dddd14150efee239002d536fa33446629cbde3979ce4e76429a23a4c1f56fda`。這張裁切是鏡像額外納入 Git 的小樣本；原始資料集與其他 `test-data/` 仍排除。
+
+### 此副本的驗證狀態
+
+2026-09-19 在本機 WSL、RTX 5070 Ti Laptop GPU，借用既有 `.venv`、Compact 權重與 AlexNet 快取實跑 `lab/run.sh`：`pip check`、33 項主程式測試、94 項評估測試全數通過；一張真實樣本兩條線都成功、0 張排除，LPIPS 與 SR 決定性皆為 True，產生 `report.md` 與 512×512 結果。已開啟來源與 SR 輸出確認構圖、尺寸及可解碼性；SR 水面細紋較平滑，不宣稱畫質提升。另以空的 `CUDA_VISIBLE_DEVICES` 確認入口在測試前退出，不改走 CPU。
+
+Lab server 的安裝與 GPU 執行尚待使用者實跑；本次也未重新建立乾淨環境或重下載依賴。下方原專案的歷史驗證紀錄不是該 server 的測試結果。
+
+---
+
 本機、單一 Spandrel 推論流程：從 `input/` 或指定資料夾逐張讀圖，以專案內的 `models/model.pth` 放大，把同 stem 的 RGB PNG 寫進 `output/` 或指定資料夾，原圖保留不動。沒有 GUI，不訓練或微調，也沒有模型選擇參數。
 
 交付預設為官方 `realesr-general-x4v3.pth`（Compact）。已完成的最大實例是一張真實 3840×2160 海面畫面處理為 15360×8640 PNG；SwinIR-M 另通過 512×512 真實裁切與最小分塊相容性。已驗證與未驗證的項目逐條列於「驗證狀態」。
