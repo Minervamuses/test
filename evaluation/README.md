@@ -55,7 +55,9 @@
 | `--model` | `model.pth` | `models/` 第一層的 checkpoint 檔名，不能與 `--all` 同用。 |
 | `--all` | 關閉 | 依檔名順序執行 `models/` 第一層的 `.pth`／`.pt`／`.ckpt`／`.safetensors`；指向相同檔案的 symlink 只執行一次。 |
 
-`--all` 只取樣一次，每顆 checkpoint 都使用同一份圖片清單、相同退化流程與評估指標。每顆依序載入，完成後釋放模型，再執行下一顆；時間與輸出空間會隨 checkpoint 數增加。評估仍要求 RGB 4× 模型，無法載入或倍率不符會記錄失敗並繼續下一顆。這兩個模型選項用於 `evaluation/run_evaluation.py`，GPU 交接檢查腳本仍使用預設模型。
+`--all` 只取樣一次，每顆 checkpoint 都使用同一份圖片清單、相同退化流程與評估指標。每顆依序載入，完成後釋放模型，再執行下一顆；時間與輸出空間會隨 checkpoint 數增加。評估仍要求 RGB 4× 模型，無法載入或倍率不符會記錄失敗並繼續下一顆。
+
+`bash lab/run.sh` 會先檢查 CUDA 與套件，預設以 `--all --input lab/sample --limit 1` 呼叫本入口；可加上 `--model NAME.pth`、`--input`、`--limit`、`--seed` 覆寫。GPU 交接檢查腳本仍使用預設模型，需另外執行。
 
 退出碼：`0` 所有 checkpoint 均有可用成績；`1` 任一 checkpoint 執行失敗或沒有圖片在兩條線上都量到；`2` 參數、checkpoint 選擇或來源資料夾有問題。個別圖片失敗記錄於報表。
 

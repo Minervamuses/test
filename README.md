@@ -74,9 +74,9 @@ git pull --ff-only origin main
 CUDA_VISIBLE_DEVICES=0 bash lab/run.sh
 ```
 
-入口依序確認 CUDA、執行 `pip check`、既有 `tests/` 與 `evaluation/` 兩套檢查，再呼叫既有 GPU 交接程式。**CUDA 不可用會停止，不會改成 CPU 跑完整流程。** CPU 的數值計算預設使用 8 個 OpenMP／MKL threads，可透過 `OMP_NUM_THREADS`／`MKL_NUM_THREADS` 覆寫。模型與 LPIPS 使用可見 GPU 的第 0 張，並沒有多 GPU 平行處理。
+入口先確認 CUDA、執行 `pip check`，再呼叫 `evaluation/run_evaluation.py`，預設使用 `--all` 依序評估 `models/` 第一層的所有 checkpoint，不要求固定的 `model.pth`。也可用 `bash lab/run.sh --model NAME.pth` 指定其中一顆。**CUDA 不可用會停止，不會改成 CPU 跑完整流程。** CPU 的數值計算預設使用 8 個 OpenMP／MKL threads，可透過 `OMP_NUM_THREADS`／`MKL_NUM_THREADS` 覆寫。模型與 LPIPS 使用可見 GPU 的第 0 張，並沒有多 GPU 平行處理。
 
-預設使用 `lab/sample/` 的一張 **512×512** 圖，評估時先降採樣成 128×128，再還原成 512×512。GPU 交接程式原有的「full size」字樣在此是這張 512×512 樣本的尺寸，**不是 4056×3040 大圖驗證**。它會檢查 LPIPS 與 SR 重複執行的決定性並產生一次真實評估。請確認 log 中兩項 `DETERMINISTIC` 都是 `True`，且 `measured` 是 1、`excluded` 是 0；既有交接程式不會因決定性為 False 或部分圖片失敗而一律回傳非零退出碼。
+預設使用 `lab/sample/` 的一張 **512×512** 圖，評估時先降採樣成 128×128，再還原成 512×512。每顆 checkpoint 都使用同一批圖片；請確認各輪 `measured` 是 1、`excluded` 是 0。這是小樣本驗證，**不是 4056×3040 大圖驗證**。測試套件與 GPU 決定性探測不再於每次評估前重跑；需要時可分別執行 `.venv/bin/python -m unittest discover -s tests`、`.venv/bin/python -m unittest discover -s evaluation` 或 `bash evaluation/gpu_checks/run_on_user_shell.sh`（測試及交接腳本仍使用 `models/model.pth`）。
 
 若圖片已另行上傳 server，可改用自己的資料夾：
 
@@ -84,9 +84,9 @@ CUDA_VISIBLE_DEVICES=0 bash lab/run.sh
 CUDA_VISIBLE_DEVICES=0 bash lab/run.sh --input /path/to/images --limit 1
 ```
 
-`--limit` 限制最後的評估批次；既有交接程式還會先用該資料夾依檔名排序的第一張做 LPIPS／SR 重複檢查。先以一張確認耗時與結果，再決定是否增加數量。4.7 GB 的本機原始資料集與歷次輸出沒有推上此 repo，`git pull` 不會取得它們。
+`--limit` 限制每顆 checkpoint 使用的相同圖片批次。先以一張確認耗時與結果，再決定是否增加數量。4.7 GB 的本機原始資料集與歷次輸出沒有推上此 repo，`git pull` 不會取得它們。
 
-結果放在 `evaluation/runs/<timestamp>/`，包含 `gpu-checks.log`、`report.md`、`hr/`、`lr/`、`bicubic/`、`sr/`。請回傳 log 與 report，並檢視對應影像；小樣本通過不代表大圖效能或真實低解析影像的畫質已驗證。每次執行建立新目錄，舊結果保留且不納入 Git。
+每顆 checkpoint 的結果各自放在 `evaluation/runs/<timestamp>/`，包含標註模型名稱與 SHA-256 的 `report.md`、`hr/`、`lr/`、`bicubic/`、`sr/`。請回傳終端機輸出與 report，並檢視對應影像；小樣本通過不代表大圖效能或真實低解析影像的畫質已驗證。每次執行建立新目錄，舊結果保留且不納入 Git。
 
 ### 小樣本來源
 

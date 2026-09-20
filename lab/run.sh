@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reuse the existing suites and GPU handover with a small checked-in sample.
+# Evaluate local checkpoints on the same small checked-in sample.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,10 +8,6 @@ PYTHON="$ROOT/.venv/bin/python"
 
 if [[ ! -x "$PYTHON" ]]; then
   echo "error: create .venv and install the dependencies first; see README.md (Lab server)." >&2
-  exit 2
-fi
-if [[ ! -f models/model.pth ]]; then
-  echo "error: prepare models/model.pth first; see README.md (Lab server)." >&2
   exit 2
 fi
 
@@ -28,15 +24,21 @@ import torch
 print(f"torch: {torch.__version__}; runtime CUDA: {torch.version.cuda}", flush=True)
 print(f"CUDA_VISIBLE_DEVICES: {os.environ['CUDA_VISIBLE_DEVICES']}", flush=True)
 if not torch.cuda.is_available():
-    raise SystemExit("error: CUDA is unavailable; fix GPU access before running lab tests.")
+    raise SystemExit("error: CUDA is unavailable; fix GPU access before running evaluation.")
 print(f"device: {torch.cuda.get_device_name(0)}", flush=True)
 torch.ones(1, device="cuda").sum().item()
 PY
 
 "$PYTHON" -m pip check
-"$PYTHON" -m unittest discover -s tests
-"$PYTHON" -m unittest discover -s evaluation
+
+# A named checkpoint overrides the default of evaluating every local checkpoint.
+MODEL_ARGS=(--all)
+for argument in "$@"; do
+  case "$argument" in
+    --model|--model=*|--all) MODEL_ARGS=(); break ;;
+  esac
+done
 
 # Later CLI arguments override these defaults through the existing argparse.
-exec bash evaluation/gpu_checks/run_on_user_shell.sh \
-  --input "$ROOT/lab/sample" --limit 1 "$@"
+exec "$PYTHON" evaluation/run_evaluation.py \
+  --input "$ROOT/lab/sample" --limit 1 "${MODEL_ARGS[@]}" "$@"
