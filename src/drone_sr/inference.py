@@ -11,11 +11,13 @@ from .tiling import TILE_SIZE, upscale_tiled
 MODEL_PATH = Path(__file__).resolve().parents[2] / "models" / "model.pth"
 
 
-def load_model() -> ImageModelDescriptor:
-    if not MODEL_PATH.is_file():
-        raise FileNotFoundError("SR model not found: models/model.pth")
+def load_model(model_path: Path | None = None) -> ImageModelDescriptor:
+    path = MODEL_PATH if model_path is None else Path(model_path)
+    if not path.is_file():
+        label = "models/model.pth" if model_path is None else str(path)
+        raise FileNotFoundError(f"SR model not found: {label}")
     try:
-        descriptor = ModelLoader().load_from_file(MODEL_PATH)
+        descriptor = ModelLoader().load_from_file(path)
     except Exception as error:
         raise RuntimeError(f"Unable to load SR model: {error}") from error
     if (

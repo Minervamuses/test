@@ -4,6 +4,7 @@ import hashlib
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import torch
@@ -37,6 +38,16 @@ class _StubDescriptor:
 
 
 class ScaleAssertionTests(unittest.TestCase):
+    def test_selected_checkpoint_and_architecture_are_preserved(self):
+        checkpoint = Path("models/alternate.pth")
+        descriptor = _StubDescriptor(4)
+        descriptor.architecture = SimpleNamespace(name="SwinIR")
+        with patch("sr_line.load_model", return_value=descriptor) as loader:
+            line = SuperResolutionLine(checkpoint)
+        loader.assert_called_once_with(checkpoint)
+        self.assertEqual(line.model_path, checkpoint)
+        self.assertEqual(line.architecture, "SwinIR")
+
     def test_a_model_that_is_not_four_times_is_refused(self):
         for scale in (2, 3, 8):
             with self.subTest(scale=scale):
@@ -47,6 +58,11 @@ class ScaleAssertionTests(unittest.TestCase):
                 message = str(raised.exception)
                 self.assertIn(str(EXPECTED_SCALE), message)
                 self.assertIn(str(scale), message)
+
+    def test_wrong_scale_error_identifies_selected_checkpoint(self):
+        with patch("sr_line.load_model", return_value=_StubDescriptor(2)):
+            with self.assertRaisesRegex(ValueError, "alternate.pth is 2x"):
+                SuperResolutionLine(Path("models/alternate.pth"))
 
     def test_the_expected_scale_matches_the_degradation_contract(self):
         from degradation import SCALE

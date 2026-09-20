@@ -4,7 +4,7 @@
 
 > 一張低解析的圖進來，走本專案的 SR，畫質是否真的贏過一般的放大手段（bicubic）？
 
-主 pipeline（`src/drone_sr/`）**完全不受影響**：本工具只 import 它的公開函式，一行都不改。所有產物寫在 `evaluation/runs/<timestamp>/` 之下，`input/`、`output/`、`models/` 皆為唯讀。
+本工具透過主 pipeline（`src/drone_sr/`）的公開函式載入所選 checkpoint 並推論；主程式仍預設使用 `models/model.pth`。所有產物寫在 `evaluation/runs/<timestamp>/` 之下，`input/`、`output/`、`models/` 皆為唯讀。
 
 ## 真值是自己造的
 
@@ -38,6 +38,12 @@
 
 ```bash
 .venv/bin/python evaluation/run_evaluation.py --limit 5 --seed 20260919
+
+# 指定 models/ 內的 checkpoint，只傳檔名
+.venv/bin/python evaluation/run_evaluation.py --model realesr-general-x4v3.pth --limit 5 --seed 20260919
+
+# 每顆 checkpoint 依序評估同一批圖片
+.venv/bin/python evaluation/run_evaluation.py --all --limit 5 --seed 20260919
 ```
 
 | 參數 | 預設 | 說明 |
@@ -46,14 +52,18 @@
 | `--limit` | `5` | 處理幾張。**預設刻意很小**，全量 738 張不在本工具的日常用法內（見「全量的成本」）。 |
 | `--seed` | 無 | 給了就隨機取樣且可重現；不給就依檔名順序取前 N 張。 |
 | `--runs-root` | `evaluation/runs` | run 目錄的位置。 |
+| `--model` | `model.pth` | `models/` 第一層的 checkpoint 檔名，不能與 `--all` 同用。 |
+| `--all` | 關閉 | 依檔名順序執行 `models/` 第一層的 `.pth`／`.pt`／`.ckpt`／`.safetensors`；指向相同檔案的 symlink 只執行一次。 |
 
-退出碼：`0` 正常；`1` 沒有任何圖片在兩條線上都量到；`2` 參數或來源資料夾有問題。
+`--all` 只取樣一次，每顆 checkpoint 都使用同一份圖片清單、相同退化流程與評估指標。每顆依序載入，完成後釋放模型，再執行下一顆；時間與輸出空間會隨 checkpoint 數增加。評估仍要求 RGB 4× 模型，無法載入或倍率不符會記錄失敗並繼續下一顆。這兩個模型選項用於 `evaluation/run_evaluation.py`，GPU 交接檢查腳本仍使用預設模型。
+
+退出碼：`0` 所有 checkpoint 均有可用成績；`1` 任一 checkpoint 執行失敗或沒有圖片在兩條線上都量到；`2` 參數、checkpoint 選擇或來源資料夾有問題。個別圖片失敗記錄於報表。
 
 ### 每次執行留下什麼
 
 ```
 evaluation/runs/<UTC timestamp>/
-├── report.md      逐張成績、平均、執行環境與參數、失敗清單
+├── report.md      checkpoint 名稱與 SHA-256、執行資料、逐張成績、平均、失敗清單
 ├── hr/            mod-crop 後的真值
 ├── lr/            降採樣後的低解析輸入（兩條線都讀這個）
 ├── bicubic/       bicubic 線的輸出
@@ -61,6 +71,8 @@ evaluation/runs/<UTC timestamp>/
 ```
 
 **絕不寫進既有的 run 目錄。** 目錄名是 UTC 時間戳；同一秒內再跑一次會得到 `-2`、`-3`，底層的 `mkdir` 帶 `exist_ok=False`，所以任何情況下舊紀錄都不會被覆蓋或修改。本工具也不會自動刪除舊 run，何時清理由你決定。
+
+`--all` 中每顆 checkpoint 各自建立一個上述 run 目錄及 `report.md`，輸出不互相覆蓋。報表只保留資料表，不再加入前言、解讀前提或結論段落；歷史報表保留原樣。
 
 ## 固定約定（改了就不能和舊數字並列）
 

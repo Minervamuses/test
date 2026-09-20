@@ -98,6 +98,23 @@ class InferenceTests(unittest.TestCase):
                         with self.assertRaisesRegex(ValueError, "RGB super-resolution"):
                             load_model()
 
+    def test_explicit_checkpoint_is_loaded_without_changing_the_default(self):
+        from drone_sr.inference import MODEL_PATH
+
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "alternate.pth"
+            checkpoint.touch()
+            with (
+                patch("drone_sr.inference.ModelLoader") as loader,
+                patch("drone_sr.inference.torch.cuda.is_available", return_value=False),
+            ):
+                loader.return_value.load_from_file.return_value = synthetic_descriptor()
+                load_model(checkpoint)
+                loader.return_value.load_from_file.assert_called_once_with(checkpoint)
+        import drone_sr.inference
+
+        self.assertEqual(drone_sr.inference.MODEL_PATH, MODEL_PATH)
+
 
 if __name__ == "__main__":
     unittest.main()

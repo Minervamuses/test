@@ -1,12 +1,15 @@
-"""Checks that report.md carries everything GOALS.md needs to make it traceable."""
+"""Checks checkpoint attribution and data-only evaluation reports."""
 
+import hashlib
 import re
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from report import REQUIRED_HEADER_FIELDS, RunEnvironment, render_report
+from report import REQUIRED_HEADER_FIELDS, RunEnvironment, describe_environment, render_failure_report, render_report
 from runner import ImageFailure, ImageResult, LineScores
 from summary import summarise
 
@@ -77,15 +80,43 @@ class ReportTests(unittest.TestCase):
         self.assertIn("2026-09-19", self.text)
 
     def test_the_header_separates_the_device_each_metric_runs_on(self):
-        self.assertIn("| PSNR／SSIM device | CPU、float64", self.text)
+        self.assertIn("| PSNR／SSIM device | CPU; float64", self.text)
         self.assertIn("| LPIPS device | cpu", self.text)
 
-    def test_the_interpretation_caveats_are_not_omitted(self):
-        self.assertIn("RGB", self.text)
-        self.assertIn("Y ", self.text)
-        self.assertIn("bicubic", self.text)
-        self.assertIn("GAN", self.text)
-        self.assertIn("LPIPS", self.text)
+    def test_the_report_contains_only_headings_and_data_tables(self):
+        for line in self.text.splitlines():
+            self.assertTrue(not line or line.startswith(("#", "|")), line)
+        self.assertNotIn("解讀前提", self.text)
+        self.assertNotIn("結論", self.text)
+        self.assertNotIn("GAN 類", self.text)
+
+    def test_checkpoint_filename_and_hash_identify_the_run(self):
+        self.assertIn("| checkpoint | realesr-general-x4v3.pth |", self.text)
+        self.assertIn("| 模型 SHA-256 | " + _environment(self.run_dir).model_sha256 + " |", self.text)
+
+    def test_environment_describes_the_selected_checkpoint(self):
+        checkpoint = self.run_dir.parent / "alternate.pth"
+        sr_line = SimpleNamespace(model_path=checkpoint, architecture="SwinIR", scale=4, device="cpu")
+        with patch("report._git", side_effect=["", "selected-commit"]), patch(
+            "report._sha256", return_value="selected-sha256"
+        ) as sha256:
+            environment = describe_environment(
+                started=_environment(self.run_dir).started,
+                run_dir=self.run_dir,
+                project_root=self.run_dir.parent,
+                source_directory=Path("input"),
+                sampling="sequential",
+                limit=2,
+                discovered=2,
+                selected=2,
+                sr_line=sr_line,
+                lpips_device="cpu",
+            )
+
+        self.assertEqual(environment.model_target, str(checkpoint))
+        self.assertEqual(environment.model_sha256, "selected-sha256")
+        self.assertEqual(environment.architecture, "SwinIR")
+        sha256.assert_any_call(checkpoint)
 
     def test_there_is_one_row_per_successful_image(self):
         rows = [line for line in self.text.splitlines() if line.startswith("| a.JPG |") or line.startswith("| b.JPG |")]
@@ -101,8 +132,7 @@ class ReportTests(unittest.TestCase):
                 row = re.search(rf"^\| {metric} \| .+ \|$", self.text, re.MULTILINE)
                 self.assertIsNotNone(row, f"no average row for {metric}")
                 self.assertIn(row.group(0).split("|")[5].strip(), ("SR", "bicubic", "tie"))
-        self.assertIn("納入 2", self.text)
-        self.assertIn("排除 2", self.text)
+        self.assertIn("| 納入張數 | 排除張數 |\n|---|---|\n| 2 | 2 |", self.text)
 
     def test_failures_are_listed_with_stage_and_reason(self):
         self.assertIn("| c.JPG | sr | out of memory |", self.text)
@@ -115,11 +145,11 @@ class ReportTests(unittest.TestCase):
     def test_a_run_with_no_successful_image_still_produces_a_report(self):
         text = render_report(_environment(self.run_dir), [], self.failures, summarise([], self.failures))
 
-        self.assertIn("納入 0", text)
+        self.assertIn("| 納入張數 | 排除張數 |\n|---|---|\n| 0 | 2 |", text)
         self.assertIn("| c.JPG | sr | out of memory |", text)
         self.assertNotIn("nan", text)
 
-    def test_an_infinite_psnr_is_shown_and_explained(self):
+    def test_an_infinite_psnr_is_shown_with_the_exclusion_count(self):
         results = [
             _result("flat.JPG", sr=(30.0, 0.9, 0.1), bicubic=(float("inf"), 1.0, 0.0)),
             _result("b.JPG", sr=(26.0, 0.74, 0.25), bicubic=(28.4, 0.81, 0.39)),
@@ -128,7 +158,25 @@ class ReportTests(unittest.TestCase):
         text = render_report(_environment(self.run_dir), results, [], summarise(results, []))
 
         self.assertIn("inf", text)
-        self.assertIn("排除於 PSNR 平均", text)
+        self.assertIn("| PSNR | ↑ | 26.0000 | 28.4000 | bicubic | 2.4000 | 1 | 1 |", text)
+
+    def test_checkpoint_initialization_failure_has_data_only_report(self):
+        checkpoint = self.run_dir.parent / "broken|weights.pth"
+        checkpoint.write_bytes(b"invalid weights")
+        text = render_failure_report(checkpoint, selected=2, error="Unsupported model\nno descriptor")
+
+        self.assertIn("| checkpoint | broken&#124;weights.pth |", text)
+        self.assertIn("| 模型 SHA-256 | " + hashlib.sha256(b"invalid weights").hexdigest() + " |", text)
+        self.assertIn("| 選取張數 | 2 |", text)
+        self.assertIn("| 狀態 | failed |", text)
+        self.assertIn("| 原因 | Unsupported model no descriptor |", text)
+        for line in text.splitlines():
+            self.assertTrue(not line or line.startswith(("#", "|")), line)
+
+    def test_unreadable_checkpoint_failure_can_still_be_reported(self):
+        text = render_failure_report(self.run_dir.parent / "missing.pth", selected=2, error="not found")
+        self.assertIn("| checkpoint | missing.pth |", text)
+        self.assertIn("| 模型 SHA-256 | n/a |", text)
 
 
 if __name__ == "__main__":

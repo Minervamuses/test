@@ -1,11 +1,4 @@
-"""The single Markdown report: header, per-image table, averages, exclusions.
-
-The header exists so that a number found here months from now can be traced
-back: commit hash, model hash, weight hashes, devices, and every fixed
-convention it was produced under. ../GOALS.md, "已知會影響結論解讀的性質",
-requires the interpretation caveats too, so INTERPRETATION below is not
-optional text and must not be trimmed.
-"""
+"""Markdown evaluation data: checkpoint, run parameters, scores, and failures."""
 
 import hashlib
 import subprocess
@@ -29,7 +22,8 @@ REQUIRED_HEADER_FIELDS = (
     "降採樣與放大演算法",
     "倍率",
     "Pillow 版本",
-    "mod-crop 規則",
+    "mod-crop",
+    "checkpoint",
     "模型檔",
     "模型 SHA-256",
     "模型架構",
@@ -39,29 +33,15 @@ REQUIRED_HEADER_FIELDS = (
     "PSNR／SSIM device",
     "LPIPS device",
     "cudnn.benchmark",
-    "跨批次可比性",
     "色彩空間與 data_range",
     "SSIM 參數",
     "SSIM 邊界與變異數",
-    "PSNR inf 規則",
-    "平均的納入規則",
     "LPIPS 套件版本",
     "LPIPS net",
     "LPIPS 線性層權重 SHA-256",
     "LPIPS backbone 來源",
     "LPIPS backbone SHA-256",
 )
-
-INTERPRETATION = """\
-- 本報告的真值是**自己造的**：取高解析原圖，以 bicubic 降採樣 4× 得到低解析輸入，再由兩條線放大回原尺寸。兩條線讀的是**磁碟上同一個 LR PNG**，bicubic 線沒有任何路徑碰得到原圖。
-- 退化是**純 bicubic 降採樣**，而 `realesr-general-x4v3` 是以真實世界複合退化（模糊、雜訊、壓縮）訓練的 GAN 模型。在乾淨的 bicubic 基準上，GAN 類 SR 常見的結果是 **PSNR／SSIM 輸給 bicubic，但 LPIPS 明顯勝出**。若出現這個組合，那是評估設定的已知性質，不是實作錯誤。
-- 因此「是否打贏一般放大手段」必須**三個指標分別下結論**：PSNR 與 SSIM 衡量逐像素保真度，LPIPS 衡量感知相似度。不得只用 PSNR 判勝負。
-- PSNR／SSIM 採 **RGB 三通道**計算，不是論文常見的 Y 通道，數值不可直接與論文對照。
-- SR 增加的細節是**重建**而非還原：模型畫出的紋理未必對應真實地物，且可能帶有真值沒有的色偏。銳利不等於正確。
-- **SR 不是一致地比 bicubic 更接近真值。** 本專案使用的模型以含雜訊的真實退化訓練，在**密集細紋理**（例如植被、粗糙水面）上會把紋理當成雜訊抹平，該處反而比 bicubic 更不忠實；在**稀疏高對比的小目標**（例如浪花、小物件）上則明顯比 bicubic 銳利。逐張數字與目視都應分區域看，不要用單一平均概括整張圖。
-- 本報告只描述**本次退化設定下**的結果，不可外推成「本專案在真實低解析影像上的畫質排名」。
-- 真值來源若為 JPEG，真值本身已是有損解碼結果。這不影響兩條線的對等性（兩邊比的是同一個真值），但絕對數值受此影響。
-"""
 
 
 @dataclass(frozen=True)
@@ -92,6 +72,10 @@ class RunEnvironment:
     lpips_backbone_sha256: str
 
 
+def _cell(value) -> str:
+    return str(value).replace("|", "&#124;").replace("\r", " ").replace("\n", " ")
+
+
 def _number(value: float | None, digits: int) -> str:
     if value is None:
         return "n/a"
@@ -110,51 +94,34 @@ def _size(pair: tuple[int, int]) -> str:
 
 
 def _header_rows(environment: RunEnvironment, sr_device: str) -> dict[str, str]:
-    worktree = (
-        "追蹤檔全部乾淨"
-        if environment.worktree_clean
-        else "**有未提交的追蹤檔變更**（此份數字對應的程式狀態未完全被 commit 涵蓋）"
-    )
     return {
         "執行時間": environment.started.strftime("%Y-%m-%d %H:%M:%S %z (%Z)"),
         "run 目錄": str(environment.run_dir),
         "git HEAD": environment.git_head,
-        "worktree 狀態": worktree,
+        "worktree 狀態": "clean" if environment.worktree_clean else "dirty",
         "原圖來源資料夾": str(environment.source_directory),
         "探索規則": environment.discovery_rule,
         "取樣方式": environment.sampling,
         "取樣上限": str(environment.limit),
         "探索到的張數": str(environment.discovered),
         "實際處理張數": str(environment.selected),
-        "降採樣與放大演算法": "Pillow `Image.Resampling.BICUBIC`（降採樣與 bicubic 放大皆是）",
+        "降採樣與放大演算法": "Pillow Image.Resampling.BICUBIC",
         "倍率": f"{environment.model_scale}×",
         "Pillow 版本": environment.pillow_version,
-        "mod-crop 規則": "自右／下裁到寬高皆為 4 的倍數，裁切後的原圖才是真值；裁切不改動任何保留下來的像素",
+        "mod-crop": "right/bottom; multiple=4",
+        "checkpoint": Path(environment.model_target).name,
         "模型檔": environment.model_target,
         "模型 SHA-256": environment.model_sha256,
         "模型架構": environment.architecture,
         "模型 scale": str(environment.model_scale),
-        "SR tile 設定": f"任一邊 > {environment.tile_size} 時自動分塊（核心 {environment.tile_size}、halo 32）",
+        "SR tile 設定": f"core={environment.tile_size}; halo=32",
         "SR 線 device": sr_device,
-        "PSNR／SSIM device": (
-            "CPU、float64。輸入直接來自 Pillow 解碼，不搬到 GPU，因此這兩個指標的數值"
-            "**與執行裝置無關且可精確重現**"
-        ),
-        "LPIPS device": f"{environment.lpips_device}（bicubic 線的放大恆為 Pillow 的 CPU 實作，不受此影響）",
+        "PSNR／SSIM device": "CPU; float64",
+        "LPIPS device": environment.lpips_device,
         "cudnn.benchmark": str(environment.cudnn_benchmark),
-        "跨批次可比性": (
-            "**受裝置影響的只有 SR 線與 LPIPS**：CPU 與 GPU 的浮點結果不保證相同"
-            "（TF32、cuDNN 演算法選擇），因此不同 device 的 SR 與 LPIPS 數字屬於不同批次，"
-            "不可並列比較。PSNR／SSIM 恆在 CPU float64 計算，跨裝置可比"
-        ),
-        "色彩空間與 data_range": "RGB 三通道、8-bit、`data_range = 255`；**不是 Y 通道**",
-        "SSIM 參數": "Gaussian window 11×11、σ=1.5、K1=0.01、K2=0.03；三通道各自計算後取平均",
-        "SSIM 邊界與變異數": (
-            "邊界為 `valid`（不補邊，SSIM map 為 `(H-10)×(W-10)`）；"
-            "變異數為 Wang et al. 的高斯加權有偏估計，非 scikit-image 的樣本共變異修正"
-        ),
-        "PSNR inf 規則": "`MSE == 0` 記為 `inf`，該張**排除於 PSNR 平均**之外，SSIM／LPIPS 照常納入",
-        "平均的納入規則": "只對 SR 線與 bicubic 線**都成功量到**的圖片取算術平均；任一線失敗，兩邊都不計入",
+        "色彩空間與 data_range": "RGB; 8-bit; data_range=255",
+        "SSIM 參數": "Gaussian 11×11; σ=1.5; K1=0.01; K2=0.03; channel_mean",
+        "SSIM 邊界與變異數": "valid; Gaussian-weighted population variance",
         "LPIPS 套件版本": environment.lpips_version,
         "LPIPS net": environment.lpips_net,
         "LPIPS 線性層權重 SHA-256": environment.lpips_linear_sha256,
@@ -164,8 +131,6 @@ def _header_rows(environment: RunEnvironment, sr_device: str) -> dict[str, str]:
 
 
 def _per_image_table(results) -> list[str]:
-    if not results:
-        return ["（本次沒有任何圖片在兩條線上都成功量到。）"]
     lines = [
         "| 檔名 | 原始尺寸 | 真值（裁切後） | LR 尺寸 "
         "| SR PSNR | bicubic PSNR | PSNR 勝方 "
@@ -174,7 +139,7 @@ def _per_image_table(results) -> list[str]:
         "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for item in results:
-        cells = [item.source_name, _size(item.original), _size(item.cropped), _size(item.low)]
+        cells = [_cell(item.source_name), _size(item.original), _size(item.cropped), _size(item.low)]
         for name in ("PSNR", "SSIM", "LPIPS"):
             sr_value = getattr(item.sr, name.lower())
             bicubic_value = getattr(item.bicubic, name.lower())
@@ -186,13 +151,15 @@ def _per_image_table(results) -> list[str]:
 
 def _average_table(summary) -> list[str]:
     lines = [
-        f"納入 {summary.included} 張、排除 {summary.failed} 張（排除的圖片兩條線都不計入）。",
+        "| 納入張數 | 排除張數 |",
+        "|---|---|",
+        f"| {summary.included} | {summary.failed} |",
         "",
         "| 指標 | 方向 | SR 平均 | bicubic 平均 | 勝方 | 差距 | 納入張數 | 因 inf 排除 |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for metric in summary.metrics:
-        direction = "越高越好" if HIGHER_IS_BETTER[metric.name] else "越低越好"
+        direction = "↑" if HIGHER_IS_BETTER[metric.name] else "↓"
         digits = _DIGITS[metric.name]
         lines.append(
             f"| {metric.name} | {direction} | {_number(metric.sr_mean, digits)} "
@@ -202,56 +169,51 @@ def _average_table(summary) -> list[str]:
     return lines
 
 
-def _conclusion(summary) -> list[str]:
-    lines = ["", "### 三個指標各自的結論", ""]
-    for metric in summary.metrics:
-        if metric.winner == "n/a":
-            lines.append(f"- **{metric.name}：** 沒有可用的比較（納入 0 張）。")
-        elif metric.winner == "tie":
-            lines.append(f"- **{metric.name}：** 兩條線平均相同。")
-        else:
-            digits = _DIGITS[metric.name]
-            lines.append(
-                f"- **{metric.name}：** {metric.winner} 較佳，差距 {_number(metric.margin, digits)}"
-                f"（{'越高越好' if HIGHER_IS_BETTER[metric.name] else '越低越好'}）。"
-            )
-    lines += [
-        "",
-        "三者方向若不一致，那不是矛盾：PSNR／SSIM 與 LPIPS 衡量的是不同的東西。見「解讀前提」。",
-    ]
-    return lines
-
-
 def _failure_table(failures) -> list[str]:
-    if not failures:
-        return ["本次沒有失敗或被略過的來源。"]
     lines = ["| 檔名 | 環節 | 原因 |", "|---|---|---|"]
-    lines += [f"| {f.source_name} | {f.stage} | {f.reason} |" for f in failures]
+    lines += [f"| {_cell(f.source_name)} | {_cell(f.stage)} | {_cell(f.reason)} |" for f in failures]
     return lines
 
 
 def render_report(environment: RunEnvironment, results, failures, summary) -> str:
-    sr_device = environment.sr_device
     sections = [
-        "# 評估報告 — SR 線 vs bicubic 基線",
+        "# 評估數據",
         "",
-        "取高解析原圖為真值，以固定退化流程造出低解析輸入，再由兩條線放大回真值尺寸並比對。",
-        "",
-        "## 1. 執行環境與參數",
+        "## 執行資料",
         "",
         "| 項目 | 值 |",
         "|---|---|",
     ]
-    rows = _header_rows(environment, sr_device)
+    rows = _header_rows(environment, environment.sr_device)
     missing = [field for field in REQUIRED_HEADER_FIELDS if not rows.get(field)]
     if missing:
         raise ValueError(f"Report header is missing required fields: {missing}")
-    sections += [f"| {field} | {rows[field]} |" for field in REQUIRED_HEADER_FIELDS]
-    sections += ["", "## 2. 解讀前提（不可省略）", "", INTERPRETATION.rstrip()]
-    sections += ["", "## 3. 逐張成績", ""] + _per_image_table(results)
-    sections += ["", "## 4. 平均", ""] + _average_table(summary) + _conclusion(summary)
-    sections += ["", "## 5. 失敗與排除", ""] + _failure_table(failures) + [""]
+    sections += [f"| {field} | {_cell(rows[field])} |" for field in REQUIRED_HEADER_FIELDS]
+    sections += ["", "## 逐張成績", ""] + _per_image_table(results)
+    sections += ["", "## 平均", ""] + _average_table(summary)
+    sections += ["", "## 失敗與排除", ""] + _failure_table(failures) + [""]
     return "\n".join(sections)
+
+
+def render_failure_report(model_path: Path, selected: int, error: str) -> str:
+    """Record a checkpoint-level failure when no complete result is available."""
+    try:
+        model_sha256 = _sha256(model_path)
+    except OSError:
+        model_sha256 = "n/a"
+    return "\n".join([
+        "# 評估數據",
+        "",
+        "| 項目 | 值 |",
+        "|---|---|",
+        f"| checkpoint | {_cell(model_path.name)} |",
+        f"| 模型檔 | {_cell(model_path)} |",
+        f"| 模型 SHA-256 | {model_sha256} |",
+        f"| 選取張數 | {selected} |",
+        "| 狀態 | failed |",
+        f"| 原因 | {_cell(error)} |",
+        "",
+    ])
 
 
 def write_report(destination: Path, text: str) -> None:
@@ -282,14 +244,13 @@ def describe_environment(
     sr_line,
     lpips_device: str,
 ) -> RunEnvironment:
-    """Read the actual state of everything the header claims."""
+    """Read the actual state of everything the report records."""
     import lpips
     import torch
     from importlib.metadata import version
     from PIL import Image as PILImage
     from torchvision.models import AlexNet_Weights
 
-    from drone_sr.inference import MODEL_PATH
     from drone_sr.tiling import TILE_SIZE
 
     status = _git(project_root, "status", "--porcelain")
@@ -297,11 +258,7 @@ def describe_environment(
 
     backbone_url = AlexNet_Weights.IMAGENET1K_V1.url
     cached = Path(torch.hub.get_dir()) / "checkpoints" / backbone_url.rsplit("/", 1)[-1]
-    backbone_sha = (
-        _sha256(cached)
-        if cached.is_file()
-        else f"未找到本機快取（{cached}）；torchvision 以 check_hash 驗證 URL 內嵌的雜湊前綴"
-    )
+    backbone_sha = _sha256(cached) if cached.is_file() else "n/a"
 
     return RunEnvironment(
         started=started,
@@ -309,15 +266,15 @@ def describe_environment(
         git_head=_git(project_root, "rev-parse", "HEAD"),
         worktree_clean=not tracked_dirty,
         source_directory=source_directory,
-        discovery_rule="來源資料夾的**直接子項**中副檔名為 .png／.jpg／.jpeg（大小寫不敏感）；忽略子資料夾與其他副檔名",
+        discovery_rule="direct children; .png/.jpg/.jpeg; case-insensitive",
         sampling=sampling,
         limit=limit,
         discovered=discovered,
         selected=selected,
         pillow_version=PILImage.__version__ if hasattr(PILImage, "__version__") else version("pillow"),
-        model_target=MODEL_PATH.resolve().name,
-        model_sha256=_sha256(MODEL_PATH.resolve()),
-        architecture=str(getattr(sr_line, "architecture", "RealESRGAN Compact")),
+        model_target=str(sr_line.model_path),
+        model_sha256=_sha256(sr_line.model_path),
+        architecture=str(sr_line.architecture),
         model_scale=sr_line.scale,
         tile_size=TILE_SIZE,
         sr_device=str(sr_line.device),
